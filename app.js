@@ -1,0 +1,691 @@
+// ─── Field mappings ────────────────────────────────────────────────────────
+const FIELDS = {
+  personen:    { Kuerzel:'Title', Vorname:'field_1', Nachname:'field_2' },
+  projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'field_1' },
+  lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2' },
+  experimente: {
+    Experiment_ID:'Title', Parent_ID:'field_1', Projekt_Kuerzel:'field_2',
+    Datum:'field_3', Person_Kuerzel:'field_4', Projekttitel:'field_5',
+    Beschreibung:'field_6', Beobachtungen:'field_7', Kommentar:'field_8',
+  },
+  material: {
+    Experiment_ID:'Title', Laenge_mm:'field_1', Breite_mm:'field_2',
+    Lagerfolge_ID:'field_3', Kraft_N:'field_4', Holzbruch_pct:'field_5', Kommentar:'field_6',
+  },
+  komponenten: {
+    Experiment_ID:'Title', Quelle_Typ:'field_1', Chemikalie_Name:'field_2',
+    Experiment_Ref:'field_3', Komponente_Name:'field_4', Hersteller:'field_5',
+    Menge:'field_7', Einheit:'field_8', Rolle:'field_9',
+  },
+  chemikalien: {
+    Chemikalie_Name:'Title', IUPAC:'field_1', Formel:'field_2',
+    Hersteller:'field_3', Menge:'field_4', Einheit:'field_5',
+    Ort:'field_6', Herkunft:'field_7', Kommentar:'field_8',
+  },
+  feststoffgehalt: {
+    Experiment_ID:'Title', Probe:'field_1', Leergewicht_g:'field_2',
+    Einwaage_g:'field_3', Endgewicht_g:'field_4', Kommentar:'field_5',
+  },
+};
+function mapFrom(items,fm){return items.map(item=>{const o={_spId:item.Id};for(const[k,v]of Object.entries(fm))o[k]=item[v]??null;return o;});}
+function mapTo(obj,fm){const o={};for(const[k,v]of Object.entries(fm)){if(k in obj)o[v]=obj[k];}return o;}
+
+// ─── MSAL ─────────────────────────────────────────────────────────────────
+const msalConfig={auth:{clientId:'9c5f89c5-d994-4b6e-9215-5f5cd4c09753',authority:'https://login.microsoftonline.com/08a7f19b-4557-486a-8f49-71dcef345176',redirectUri:window.location.origin+window.location.pathname.replace(/index\.html$/,'')},cache:{cacheLocation:'sessionStorage'}};
+const SP='https://oucvbj.sharepoint.com/sites/FirmaLeibnizUniversittHannoverITE-LIGARO';
+const SP_SCOPE='https://oucvbj.sharepoint.com/AllSites.Write';
+const LIST={experimente:'Experimente',material:'Materialpruefung',lagerfolgen:'Lagerfolgen',personen:'Personen',projekte:'Projektkuerzel',komponenten:'Komponenten',chemikalien:'Chemikalienbestand',feststoffgehalt:'Feststoffgehalt'};
+
+let msalApp;
+async function getMsal(){if(!msalApp){msalApp=new msal.PublicClientApplication(msalConfig);await msalApp.initialize();}return msalApp;}
+async function login(){document.getElementById('login-error').textContent='';try{const app=await getMsal();const r=await app.loginPopup({scopes:[SP_SCOPE]});onLoggedIn(r.account);}catch(e){document.getElementById('login-error').textContent='Anmeldung fehlgeschlagen: '+e.message;}}
+async function getToken(){const app=await getMsal(),accs=app.getAllAccounts();if(!accs.length)throw new Error('Nicht angemeldet');return(await app.acquireTokenSilent({scopes:[SP_SCOPE],account:accs[0]}).catch(()=>app.acquireTokenPopup({scopes:[SP_SCOPE]}))).accessToken;}
+function onLoggedIn(account){document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='block';document.getElementById('user-info').textContent=account.name||account.username;loadAll();}
+(async()=>{const app=await getMsal();const a=app.getAllAccounts();if(a.length)onLoggedIn(a[0]);})();
+
+// ─── State ────────────────────────────────────────────────────────────────
+let allExp=[],allMat=[],allChem=[],allKomps=[],allSC=[],personen=[],projekte=[],lagerfolgen=[];
+let entityTypes={},digestVal=null,digestExp=0;
+let selectedProj=new Set(),selectedPers=new Set(),selectedLafo=new Set(),selectedOrt=new Set();
+let selectedResProj=new Set(),selectedResPers=new Set(),selectedResLafo=new Set();
+let mpaRanges={};
+let activeTextCol='Beschreibung';
+let editingExp=null,editingMat=null,editingChem=null,editingSC=null;
+// Sort state: col + dir (1=asc, -1=desc)
+let sortState={
+  exp:{col:'Datum',dir:-1},
+  mat:{col:'Experiment_ID',dir:1},
+  res:{col:'Datum',dir:-1},
+};
+
+// ─── API ──────────────────────────────────────────────────────────────────
+function setStatus(msg){document.getElementById('status-msg').textContent=msg;}
+function enc(s){return encodeURIComponent(s);}
+function esc(v){if(v==null)return'';return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmtDate(v){if(!v||v.startsWith('0001'))return'';return v.substring(0,10);}
+function calcMpa(l,b,f){const a=parseFloat(l)*parseFloat(b),fo=parseFloat(f);if(!a||!fo)return null;return(fo/a).toFixed(2);}
+
+async function getDigest(token){if(digestVal&&Date.now()<digestExp)return digestVal;const r=await fetch(`${SP}/_api/contextinfo`,{method:'POST',headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});if(!r.ok)throw new Error('contextinfo '+r.status);const d=await r.json();digestVal=d.d.GetContextWebInformation.FormDigestValue;digestExp=Date.now()+25*60*1000;return digestVal;}
+async function getEntityType(listName,token){if(entityTypes[listName])return entityTypes[listName];const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')?$select=ListItemEntityTypeFullName`,{headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});if(!r.ok)throw new Error('type '+listName+': '+r.status);const d=await r.json();entityTypes[listName]=d.d.ListItemEntityTypeFullName;return entityTypes[listName];}
+async function spGet(listName,fieldMap,filter=''){const token=await getToken();const select=fieldMap?'Id,'+Object.values(fieldMap).join(','):'';let url=`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items?$top=5000`;if(select)url+=`&$select=${select}`;if(filter)url+=`&$filter=${encodeURIComponent(filter)}`;const r=await fetch(url,{headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});if(!r.ok)throw new Error(`GET ${listName}: ${r.status}`);const d=await r.json();return fieldMap?mapFrom(d.d.results,fieldMap):d.d.results;}
+async function spPost(listName,item){const token=await getToken();const[type,digest]=await Promise.all([getEntityType(listName,token),getDigest(token)]);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items`,{method:'POST',headers:{'Accept':'application/json;odata=verbose','Content-Type':'application/json;odata=verbose','X-RequestDigest':digest,'Authorization':'Bearer '+token},body:JSON.stringify({__metadata:{type},...item})});if(!r.ok){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}return r.json();}
+async function spPatch(listName,spId,item){const token=await getToken();const[type,digest]=await Promise.all([getEntityType(listName,token),getDigest(token)]);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${spId})`,{method:'POST',headers:{'Accept':'application/json;odata=verbose','Content-Type':'application/json;odata=verbose','X-RequestDigest':digest,'Authorization':'Bearer '+token,'X-HTTP-Method':'MERGE','IF-MATCH':'*'},body:JSON.stringify({__metadata:{type},...item})});if(!r.ok){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}}
+async function spDelete(listName,spId){const token=await getToken();const digest=await getDigest(token);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${spId})`,{method:'POST',headers:{'Accept':'application/json;odata=verbose','X-RequestDigest':digest,'Authorization':'Bearer '+token,'X-HTTP-Method':'DELETE','IF-MATCH':'*'}});if(!r.ok&&r.status!==204){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}}
+
+// ─── MPa color ────────────────────────────────────────────────────────────
+function computeMpaRanges(){mpaRanges={};allMat.forEach(m=>{const v=parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N));if(isNaN(v))return;const id=m.Lagerfolge_ID||'';if(!mpaRanges[id])mpaRanges[id]={min:v,max:v};mpaRanges[id].min=Math.min(mpaRanges[id].min,v);mpaRanges[id].max=Math.max(mpaRanges[id].max,v);});}
+function mpaStyle(mpa,lafoId){const r=mpaRanges[lafoId];if(!r||r.max===r.min)return'';const pct=(parseFloat(mpa)-r.min)/(r.max-r.min);if((lafoId||'').toUpperCase().includes('WET')){const h=Math.round(215+pct*60);const s=Math.round(15+pct*55);return`background:hsl(${h},${s}%,78%);`;}else{return`background:hsl(${Math.round(pct*120)},65%,82%);`;}}
+
+// ─── Sort helpers ─────────────────────────────────────────────────────────
+function setSort(pane,col){
+  const s=sortState[pane];
+  if(s.col===col)s.dir*=-1; else{s.col=col;s.dir=col==='Datum'||col==='MWMpa'||col==='MWSC'?-1:1;}
+  updateSortHeaders(pane);
+  if(pane==='exp')filterExp();else if(pane==='mat')filterMat();else filterRes();
+}
+function updateSortHeaders(pane){
+  const s=sortState[pane];
+  document.querySelectorAll(`[id^="si-${pane}-"]`).forEach(el=>{
+    const col=el.id.replace(`si-${pane}-`,'');
+    const th=el.closest('th');
+    if(col===s.col){el.textContent=s.dir===1?'▲':'▼';th.classList.add('sort-active');}
+    else{el.textContent='↕';th.classList.remove('sort-active');}
+  });
+}
+function applySort(rows,pane,numericCols=[]){
+  const s=sortState[pane];
+  return [...rows].sort((a,b)=>{
+    let va=a[s.col]??'',vb=b[s.col]??'';
+    if(numericCols.includes(s.col)){va=parseFloat(va)||0;vb=parseFloat(vb)||0;}
+    if(va<vb)return -s.dir;if(va>vb)return s.dir;return 0;
+  });
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function fillSelect(id,data,valKey,labelFn){const sel=document.getElementById(id);const first=sel.options[0];sel.innerHTML='';sel.appendChild(first);data.forEach(d=>{const o=document.createElement('option');o.value=d[valKey];o.textContent=labelFn(d);sel.appendChild(o);});}
+function showTab(id,btn){document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));document.getElementById('pane-'+id).classList.add('active');btn.classList.add('active');}
+
+// ─── Multi-select ─────────────────────────────────────────────────────────
+function buildMs(panelId,data,valKey,labelFn,selectedSet,onChangeFn){const panel=document.getElementById(panelId);const clearBtn=panel.querySelector('.ms-clear');panel.innerHTML='';panel.appendChild(clearBtn);data.forEach(d=>{const val=String(d[valKey]);const lbl=document.createElement('label');lbl.className='ms-item';lbl.innerHTML=`<input type="checkbox" value="${esc(val)}" onchange="${onChangeFn}(this)"> ${esc(labelFn(d))}`;panel.appendChild(lbl);});}
+function toggleMs(type){const panel=document.getElementById('ms-'+type+'-panel');const isOpen=panel.classList.contains('open');document.querySelectorAll('.ms-panel').forEach(p=>p.classList.remove('open'));if(!isOpen)panel.classList.add('open');}
+document.addEventListener('click',e=>{if(!e.target.closest('.ms-wrap'))document.querySelectorAll('.ms-panel').forEach(p=>p.classList.remove('open'));});
+function updateMsBtn(type,set){const btn=document.getElementById('ms-'+type+'-btn');const count=document.getElementById('ms-'+type+'-count');if(set.size===0){btn.classList.remove('active');count.innerHTML='';}else{btn.classList.add('active');count.innerHTML=`<span class="ms-tag">${set.size}</span> `;}}
+function clearMs(type){
+  const map={'proj':selectedProj,'pers':selectedPers,'lafo':selectedLafo,'ort':selectedOrt,'res-proj':selectedResProj,'res-pers':selectedResPers,'res-lafo':selectedResLafo};
+  map[type].clear();
+  document.querySelectorAll(`#ms-${type}-panel input[type=checkbox]`).forEach(cb=>cb.checked=false);
+  updateMsBtn(type,map[type]);
+  if(type==='proj'||type==='pers')filterExp();else if(type==='lafo')filterMat();else if(type==='ort')filterChem();else filterRes();
+}
+function onProjChange(cb){cb.checked?selectedProj.add(cb.value):selectedProj.delete(cb.value);updateMsBtn('proj',selectedProj);filterExp();}
+function onPersChange(cb){cb.checked?selectedPers.add(cb.value):selectedPers.delete(cb.value);updateMsBtn('pers',selectedPers);filterExp();}
+function onLafoChange(cb){cb.checked?selectedLafo.add(cb.value):selectedLafo.delete(cb.value);updateMsBtn('lafo',selectedLafo);filterMat();}
+function onOrtChange(cb){cb.checked?selectedOrt.add(cb.value):selectedOrt.delete(cb.value);updateMsBtn('ort',selectedOrt);filterChem();}
+function onResProjChange(cb){cb.checked?selectedResProj.add(cb.value):selectedResProj.delete(cb.value);updateMsBtn('res-proj',selectedResProj);filterRes();}
+function onResPersChange(cb){cb.checked?selectedResPers.add(cb.value):selectedResPers.delete(cb.value);updateMsBtn('res-pers',selectedResPers);filterRes();}
+function onResLafoChange(cb){cb.checked?selectedResLafo.add(cb.value):selectedResLafo.delete(cb.value);updateMsBtn('res-lafo',selectedResLafo);filterRes();}
+
+function setTextCol(col,btn){activeTextCol=col;document.querySelectorAll('.col-toggle button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById('text-col-header').textContent=col;filterExp();}
+
+// ─── Load all ─────────────────────────────────────────────────────────────
+async function loadAll(){
+  setStatus('Lade…');
+  try{
+    [personen,projekte,lagerfolgen,allExp,allMat]=await Promise.all([
+      spGet(LIST.personen,FIELDS.personen),spGet(LIST.projekte,FIELDS.projekte),
+      spGet(LIST.lagerfolgen,FIELDS.lagerfolgen),spGet(LIST.experimente,FIELDS.experimente),
+      spGet(LIST.material,FIELDS.material),
+    ]);
+    allChem  = await spGet(LIST.chemikalien,     FIELDS.chemikalien).catch(()=>[]);
+    allKomps = await spGet(LIST.komponenten,     FIELDS.komponenten).catch(()=>[]);
+    allSC    = await spGet(LIST.feststoffgehalt, FIELDS.feststoffgehalt).catch(()=>[]);
+
+    allExp.sort((a,b)=>(b.Datum||'').localeCompare(a.Datum||''));
+    computeMpaRanges();
+
+    buildMs('ms-proj-panel', projekte,    'Projekt_Kuerzel', p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''), selectedProj, 'onProjChange');
+    buildMs('ms-pers-panel', personen,    'Kuerzel',         p=>`${p.Kuerzel} – ${p.Vorname} ${p.Nachname}`, selectedPers, 'onPersChange');
+    buildMs('ms-lafo-panel', lagerfolgen, 'Lagerfolge_ID',   l=>`${l.Lagerfolge_ID} – ${l.Name}`, selectedLafo, 'onLafoChange');
+    fillSelect('f-mat-lafo', lagerfolgen, 'Lagerfolge_ID',   l=>`${l.Lagerfolge_ID} – ${l.Name}`);
+    buildMs('ms-res-proj-panel', projekte,    'Projekt_Kuerzel', p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''), selectedResProj, 'onResProjChange');
+    buildMs('ms-res-pers-panel', personen,    'Kuerzel',         p=>`${p.Kuerzel} – ${p.Vorname} ${p.Nachname}`, selectedResPers, 'onResPersChange');
+    buildMs('ms-res-lafo-panel', lagerfolgen, 'Lagerfolge_ID',   l=>`${l.Lagerfolge_ID} – ${l.Name}`, selectedResLafo, 'onResLafoChange');
+
+    const orte=[...new Set(allChem.map(c=>c.Ort).filter(Boolean))].sort().map(o=>({Ort:o}));
+    buildMs('ms-ort-panel', orte, 'Ort', o=>o.Ort, selectedOrt, 'onOrtChange');
+
+    updateSortHeaders('exp');updateSortHeaders('mat');updateSortHeaders('res');
+    cachedErgebnisse=computeErgebnisse();
+    filterExp();filterMat();filterRes();filterChem();setStatus('');
+  }catch(e){
+    setStatus('Fehler: '+e.message);console.error(e);
+    document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="6" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="9" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('res-tbody').innerHTML=`<tr><td colspan="12" class="state">${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ─── Experiments list ──────────────────────────────────────────────────────
+function filterExp(){
+  const q=document.getElementById('exp-search').value.toLowerCase();
+  const df=document.getElementById('exp-date-from').value;
+  const dt=document.getElementById('exp-date-to').value;
+  let rows=allExp.filter(e=>
+    (!selectedProj.size||selectedProj.has(e.Projekt_Kuerzel))&&
+    (!selectedPers.size||selectedPers.has(e.Person_Kuerzel))&&
+    (!df||fmtDate(e.Datum)>=df)&&(!dt||fmtDate(e.Datum)<=dt)&&
+    (!q||`${e.Experiment_ID} ${e.Projekttitel} ${e.Beschreibung} ${e.Beobachtungen}`.toLowerCase().includes(q))
+  );
+  rows=applySort(rows,'exp');
+  document.getElementById('exp-count').textContent=rows.length+' Einträge';
+  document.getElementById('exp-tbody').innerHTML=rows.length
+    ?rows.map(e=>{
+        const eid=esc(e.Experiment_ID);
+        const text=esc(e[activeTextCol]||'');
+        return `<tr class="exp-row" id="erow-${eid}" onclick="toggleExpRow('${eid}')">
+          <td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.Projekttitel)}</td>
+          <td style="white-space:nowrap">${fmtDate(e.Datum)}</td>
+          <td>${esc(e.Person_Kuerzel)}</td>
+          <td class="text-cell collapsed" id="tc-${eid}">${text}
+            <div class="extra-fields" id="ef-${eid}">
+              <div class="extra-label">Beschreibung</div>${esc(e.Beschreibung||'')}
+              <div class="extra-label">Beobachtungen</div>${esc(e.Beobachtungen||'')}
+              <div class="extra-label">Kommentar</div>${esc(e.Kommentar||'')}
+            </div>
+          </td>
+          <td class="col-actions" onclick="event.stopPropagation()" style="width:88px">
+            <button class="btn-icon" title="Bearbeiten" onclick="editExp('${eid}')">✏️</button>
+            <button class="btn-icon" title="Duplizieren" onclick="dupExp('${eid}')">📋</button>
+            <button class="btn-icon" title="Feststoffgehalt" onclick="openSCPanel('${eid}')">⚗️</button>
+          </td>
+        </tr>`;
+      }).join('')
+    :'<tr><td colspan="6" class="state">Keine Einträge gefunden.</td></tr>';
+}
+
+function toggleExpRow(expId){const row=document.getElementById('erow-'+expId);const tc=document.getElementById('tc-'+expId);const ef=document.getElementById('ef-'+expId);if(!row)return;const exp=!row.classList.contains('expanded');row.classList.toggle('expanded',exp);tc.classList.toggle('collapsed',!exp);tc.classList.toggle('expanded-text',exp);ef.classList.toggle('show',exp);}
+
+// ─── Material list ─────────────────────────────────────────────────────────
+function filterMat(){
+  const q=document.getElementById('mat-search').value.toLowerCase();
+  const df=document.getElementById('mat-date-from').value;
+  const dt=document.getElementById('mat-date-to').value;
+  let rows=allMat.filter(m=>{
+    const exp=allExp.find(e=>e.Experiment_ID===m.Experiment_ID);
+    const datum=fmtDate(exp?.Datum||'');
+    const titel=(exp?.Projekttitel||'').toLowerCase();
+    return (!selectedLafo.size||selectedLafo.has(m.Lagerfolge_ID))&&
+      (!df||datum>=df)&&(!dt||datum<=dt)&&
+      (!q||((m.Experiment_ID||'').toLowerCase().includes(q)||titel.includes(q)));
+  });
+  // Add computed _mpa for sorting
+  rows=rows.map(m=>({...m,_mpa:parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N))||0}));
+  rows=applySort(rows,'mat',['_mpa']);
+  document.getElementById('mat-count').textContent=rows.length+' Einträge';
+  document.getElementById('mat-tbody').innerHTML=rows.length
+    ?rows.map(m=>{
+        const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);
+        const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';
+        const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';
+        const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm}×${m.Breite_mm}`:'';
+        const eid=esc(m.Experiment_ID);
+        const exp=allExp.find(e=>e.Experiment_ID===m.Experiment_ID);
+        const titel=esc(exp?.Projekttitel||'');
+        return `<tr>
+          <td style="white-space:nowrap"><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
+          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#555">${titel}</td>
+          <td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td>
+          <td style="text-align:right;font-size:12px">${hb}</td>
+          <td style="white-space:nowrap;font-size:12px">${esc(m.Lagerfolge_ID)}</td>
+          <td style="text-align:right;font-size:12px;white-space:nowrap">${lxb}</td>
+          <td style="text-align:right;font-size:12px">${m.Kraft_N??''}</td>
+          <td class="truncate" style="font-size:12px">${esc(m.Kommentar)}</td>
+          <td class="col-actions"><button class="btn-icon" title="Bearbeiten" onclick="editMat(${m._spId})">✏️</button></td>
+        </tr>`;
+      }).join('')
+    :'<tr><td colspan="9" class="state">Keine Einträge gefunden.</td></tr>';
+}
+
+// ─── Ergebnisse ───────────────────────────────────────────────────────────
+function calcSC(leer,ein,end){if(ein==null||ein===''||leer==null||end==null||end==='')return null;const v=(parseFloat(end)-parseFloat(leer))/parseFloat(ein)*100;return isNaN(v)?null:v;}
+
+function computeErgebnisse(){
+  const groups={};
+  allMat.forEach(m=>{
+    const mpa=parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N));
+    if(isNaN(mpa))return;
+    const key=`${m.Experiment_ID}||${m.Lagerfolge_ID||''}`;
+    if(!groups[key])groups[key]={Experiment_ID:m.Experiment_ID,Lagerfolge_ID:m.Lagerfolge_ID||'',mpaVals:[],hbVals:[]};
+    groups[key].mpaVals.push(mpa);
+    if(m.Holzbruch_pct!=null)groups[key].hbVals.push(m.Holzbruch_pct*100);
+  });
+  // SC pro Experiment (unabhängig von Lagerfolge)
+  const scByExp={};
+  allSC.forEach(s=>{
+    const v=calcSC(s.Leergewicht_g,s.Einwaage_g,s.Endgewicht_g);
+    if(v==null)return;
+    if(!scByExp[s.Experiment_ID])scByExp[s.Experiment_ID]=[];
+    scByExp[s.Experiment_ID].push(v);
+  });
+  function scStats(expId){
+    const vals=scByExp[expId]||[];
+    if(!vals.length)return{nSC:0,MWSC:null,StdAbwSC:null};
+    const n=vals.length,mean=vals.reduce((a,b)=>a+b,0)/n;
+    const std=n>1?Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/(n-1)):0;
+    return{nSC:n,MWSC:mean,StdAbwSC:std};
+  }
+  return Object.values(groups).map(g=>{
+    const n=g.mpaVals.length;
+    const mean=g.mpaVals.reduce((a,b)=>a+b,0)/n;
+    const variance=n>1?g.mpaVals.reduce((a,b)=>a+(b-mean)**2,0)/(n-1):0;
+    const exp=allExp.find(e=>e.Experiment_ID===g.Experiment_ID);
+    const sc=scStats(g.Experiment_ID);
+    return{
+      Experiment_ID:g.Experiment_ID,Lagerfolge_ID:g.Lagerfolge_ID,
+      Titel:exp?.Projekttitel||'',Datum:exp?.Datum||'',
+      Person:exp?.Person_Kuerzel||'',Projekt:exp?.Projekt_Kuerzel||'',
+      n,MWMpa:mean,StdAbw:Math.sqrt(variance),
+      MWHolzbruch:g.hbVals.length?(g.hbVals.reduce((a,b)=>a+b,0)/g.hbVals.length):null,
+      ...sc,
+    };
+  });
+}
+
+let cachedErgebnisse=[];
+function filterRes(){
+  const q=document.getElementById('res-search').value.toLowerCase();
+  const df=document.getElementById('res-date-from').value;
+  const dt=document.getElementById('res-date-to').value;
+  let rows=cachedErgebnisse.filter(r=>
+    (!selectedResProj.size||selectedResProj.has(r.Projekt))&&
+    (!selectedResPers.size||selectedResPers.has(r.Person))&&
+    (!selectedResLafo.size||selectedResLafo.has(r.Lagerfolge_ID))&&
+    (!df||fmtDate(r.Datum)>=df)&&(!dt||fmtDate(r.Datum)<=dt)&&
+    (!q||`${r.Experiment_ID} ${r.Titel}`.toLowerCase().includes(q))
+  );
+  rows=applySort(rows,'res',['MWMpa','n','MWSC']);
+  document.getElementById('res-count').textContent=rows.length+' Gruppen';
+  document.getElementById('res-tbody').innerHTML=rows.length
+    ?rows.map(r=>{
+        const style=mpaStyle(r.MWMpa.toFixed(2),r.Lagerfolge_ID);
+        const eid=esc(r.Experiment_ID);
+        return `<tr>
+          <td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.Titel)}</td>
+          <td style="white-space:nowrap">${fmtDate(r.Datum)}</td>
+          <td>${esc(r.Person)}</td>
+          <td style="font-size:12px">${esc(r.Lagerfolge_ID)}</td>
+          <td style="text-align:right" class="stat-n">${r.n}</td>
+          <td style="text-align:right"><span class="mpa-chip" style="${style}">${r.MWMpa.toFixed(3)}</span></td>
+          <td style="text-align:right;font-size:12px;color:#666">${r.StdAbw.toFixed(3)}</td>
+          <td style="text-align:right;font-size:12px">${r.MWHolzbruch!=null?r.MWHolzbruch.toFixed(1)+'%':''}</td>
+          <td style="text-align:right;font-size:12px;border-left:2px solid #e2e8f0">${r.nSC||''}</td>
+          <td style="text-align:right;font-size:12px">${r.MWSC!=null?r.MWSC.toFixed(2)+'%':''}</td>
+          <td style="text-align:right;font-size:12px;color:#666">${r.StdAbwSC!=null&&r.nSC>1?r.StdAbwSC.toFixed(2)+'%':''}</td>
+        </tr>`;
+      }).join('')
+    :'<tr><td colspan="12" class="state">Keine Daten.</td></tr>';
+}
+
+function exportExcel(){
+  const q=document.getElementById('res-search').value.toLowerCase();
+  const df=document.getElementById('res-date-from').value;
+  const dt=document.getElementById('res-date-to').value;
+  let rows=cachedErgebnisse.filter(r=>
+    (!selectedResProj.size||selectedResProj.has(r.Projekt))&&
+    (!selectedResPers.size||selectedResPers.has(r.Person))&&
+    (!selectedResLafo.size||selectedResLafo.has(r.Lagerfolge_ID))&&
+    (!df||fmtDate(r.Datum)>=df)&&(!dt||fmtDate(r.Datum)<=dt)&&
+    (!q||`${r.Experiment_ID} ${r.Titel}`.toLowerCase().includes(q))
+  );
+  rows=applySort(rows,'res',['MWMpa','n','MWSC']);
+  const data=[
+    ['Experiment-ID','Titel','Datum','Person','Protokoll','n','MW MPa','StdAbw (MPa)','MW Holzbruch (%)','n SC','MW SC%','StdAbw SC%'],
+    ...rows.map(r=>[r.Experiment_ID,r.Titel,fmtDate(r.Datum),r.Person,r.Lagerfolge_ID,r.n,
+      parseFloat(r.MWMpa.toFixed(3)),parseFloat(r.StdAbw.toFixed(3)),
+      r.MWHolzbruch!=null?parseFloat(r.MWHolzbruch.toFixed(1)):'',
+      r.nSC||0,r.MWSC!=null?parseFloat(r.MWSC.toFixed(2)):'',r.StdAbwSC!=null&&r.nSC>1?parseFloat(r.StdAbwSC.toFixed(2)):'']),
+  ];
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=[{wch:16},{wch:30},{wch:12},{wch:8},{wch:14},{wch:4},{wch:10},{wch:12},{wch:16},{wch:5},{wch:10},{wch:12}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Ergebnisse');
+  XLSX.writeFile(wb,'LIGARO_Ergebnisse.xlsx');
+}
+
+// ─── Chemicals list ────────────────────────────────────────────────────────
+function filterChem(){
+  const q=document.getElementById('chem-search').value.toLowerCase();
+  const rows=allChem.filter(c=>
+    (!selectedOrt.size||selectedOrt.has(c.Ort))&&
+    (!q||`${c.Chemikalie_Name} ${c.Hersteller} ${c.Ort} ${c.IUPAC}`.toLowerCase().includes(q))
+  );
+  document.getElementById('chem-count').textContent=rows.length+' Einträge';
+  document.getElementById('chem-tbody').innerHTML=rows.length
+    ?rows.map(c=>{
+        const cid=(c.Chemikalie_Name||'').replace(/[^a-z0-9]/gi,'_')+c._spId;
+        const spId=c._spId;
+        const usedIn=[...new Set(allKomps.filter(k=>k.Chemikalie_Name===c.Chemikalie_Name).map(k=>k.Experiment_ID).filter(Boolean))];
+        const expandRow=usedIn.length?`<tr class="chem-expand-row" id="chem-exp-${cid}"><td colspan="10"><div class="chem-expand-inner"><span class="extra-label">Verwendet in ${usedIn.length} Experiment(en)</span><div class="chem-exp-list">${usedIn.map(id=>`<span class="badge" onclick="openDetail(event,'${esc(id)}')">${esc(id)}</span>`).join('')}</div></div></td></tr>`:'';
+        const chevron=usedIn.length?`<span style="font-size:10px;opacity:.5" id="chev-${cid}">▶</span>`:'';
+        return `<tr class="chem-row" onclick="${usedIn.length?`toggleChemRow('${cid}')`:''}" id="crow-${cid}">
+          <td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td>
+          <td><strong>${esc(c.Chemikalie_Name)}</strong></td>
+          <td style="font-family:monospace;font-size:12px">${esc(c.Formel)}</td>
+          <td>${esc(c.Hersteller)}</td>
+          <td style="text-align:right">${esc(c.Menge)}</td>
+          <td>${esc(c.Einheit)}</td>
+          <td>${esc(c.Ort)}</td>
+          <td>${esc(c.Herkunft)}</td>
+          <td class="truncate">${esc(c.Kommentar)}</td>
+          <td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editChem(${spId})">✏️</button></td>
+        </tr>${expandRow}`;
+      }).join('')
+    :allChem.length===0
+      ?'<tr><td colspan="10" class="state">Chemikalien-Liste noch nicht in SharePoint vorhanden.</td></tr>'
+      :'<tr><td colspan="10" class="state">Keine Einträge gefunden.</td></tr>';
+}
+function toggleChemRow(cid){const row=document.getElementById('crow-'+cid);const expRow=document.getElementById('chem-exp-'+cid);const chev=document.getElementById('chev-'+cid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);row.classList.toggle('expanded',open);if(chev)chev.textContent=open?'▼':'▶';}
+
+// ─── Detail modal ──────────────────────────────────────────────────────────
+async function openDetail(event,expId){
+  event.stopPropagation();
+  document.getElementById('detail-title').textContent='Experiment '+expId;
+  document.getElementById('detail-body').innerHTML='<div class="state">Lade…</div>';
+  document.getElementById('detail-overlay').classList.add('open');
+  try{
+    let komps=[],kompsNote='';
+    try{komps=await spGet(LIST.komponenten,FIELDS.komponenten,`Title eq '${expId}'`);}
+    catch(e){kompsNote=e.message.includes('404')?'<p class="modal-warn">Komponenten-Liste noch nicht in SharePoint vorhanden.</p>':`<p class="modal-warn">Fehler: ${esc(e.message)}</p>`;}
+    const mats=allMat.filter(m=>m.Experiment_ID===expId);
+    const exp=allExp.find(e=>e.Experiment_ID===expId);
+    let html='';
+    html+='<div class="modal-section"><h3>Zusammensetzung</h3>';
+    if(kompsNote)html+=kompsNote;
+    else if(komps.length){html+='<table class="modal-table"><thead><tr><th>Komponente</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th></tr></thead><tbody>';komps.forEach(k=>{html+=`<tr><td>${esc(k.Chemikalie_Name||k.Experiment_Ref||k.Komponente_Name||'–')}</td><td>${esc(k.Hersteller)}</td><td style="text-align:right">${esc(k.Menge)}</td><td>${esc(k.Einheit)}</td><td>${esc(k.Rolle)}</td></tr>`;});html+='</tbody></table>';}
+    else html+='<p class="modal-empty">Keine Komponenten eingetragen.</p>';
+    html+='</div>';
+    html+='<div class="modal-section"><h3>Materialprüfung</h3>';
+    if(mats.length){html+='<table class="modal-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">Holzbruch %</th><th style="text-align:right">L × B</th><th style="text-align:right">Kraft (N)</th><th>Kommentar</th></tr></thead><tbody>';mats.forEach(m=>{const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm} × ${m.Breite_mm}`:'';html+=`<tr><td>${esc(m.Lagerfolge_ID)}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${lxb}</td><td style="text-align:right">${m.Kraft_N??''}</td><td>${esc(m.Kommentar)}</td></tr>`;});html+='</tbody></table>';}
+    else html+='<p class="modal-empty">Keine Messungen vorhanden.</p>';
+    html+='</div>';
+    const scs=allSC.filter(s=>s.Experiment_ID===expId);
+    html+='<div class="modal-section"><h3>Feststoffgehalt</h3>';
+    if(scs.length){html+='<table class="modal-table"><thead><tr><th>Probe</th><th style="text-align:right">Leergewicht (g)</th><th style="text-align:right">Einwaage (g)</th><th style="text-align:right">Endgewicht (g)</th><th style="text-align:right">SC%</th><th>Kommentar</th><th></th></tr></thead><tbody>';scs.forEach(s=>{const sc=calcSC(s.Leergewicht_g,s.Einwaage_g,s.Endgewicht_g);html+=`<tr><td>${esc(s.Probe)}</td><td style="text-align:right">${s.Leergewicht_g??''}</td><td style="text-align:right">${s.Einwaage_g??''}</td><td style="text-align:right">${s.Endgewicht_g??''}</td><td style="text-align:right;font-weight:600">${sc!=null?sc.toFixed(2)+'%':''}</td><td style="font-size:12px;color:#666">${esc(s.Kommentar)}</td><td><button class="btn-icon" title="Bearbeiten" onclick="editSC(${s._spId});closeDetailDirect()">✏️</button></td></tr>`;});html+='</tbody></table>';}
+    else html+='<p class="modal-empty">Keine SC-Messungen vorhanden. <button class="btn btn-secondary btn-sm" onclick="openSCPanel(\''+esc(expId)+'\');closeDetailDirect()">SC erfassen</button></p>';
+    html+='</div>';
+    if(exp&&(exp.Beschreibung||exp.Beobachtungen||exp.Kommentar)){html+='<div class="modal-section"><h3>Notizen</h3>';if(exp.Beschreibung)html+=`<div class="extra-label">Beschreibung</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beschreibung)}</p>`;if(exp.Beobachtungen)html+=`<div class="extra-label">Beobachtungen</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beobachtungen)}</p>`;if(exp.Kommentar)html+=`<div class="extra-label">Kommentar</div><p style="font-size:13px;white-space:pre-wrap">${esc(exp.Kommentar)}</p>`;html+='</div>';}
+    document.getElementById('detail-body').innerHTML=html;
+  }catch(e){document.getElementById('detail-body').innerHTML=`<p class="modal-empty">Fehler: ${esc(e.message)}</p>`;}
+}
+function closeDetail(e){if(e.target===document.getElementById('detail-overlay'))closeDetailDirect();}
+function closeDetailDirect(){document.getElementById('detail-overlay').classList.remove('open');}
+
+// ─── Panels ───────────────────────────────────────────────────────────────
+let activePanel=null;
+function openPanel(type){document.getElementById('overlay').classList.add('open');document.getElementById('panel-'+type).classList.add('open');activePanel=type;if(type==='exp'){editingExp=null;initExpForm();}else if(type==='mat'){editingMat=null;initMatForm();}else if(type==='chem'){editingChem=null;initChemForm();}else if(type==='sc'){editingSC=null;initSCForm(null);}}
+function closePanel(){document.getElementById('overlay').classList.remove('open');if(activePanel){document.getElementById('panel-'+activePanel).classList.remove('open');activePanel=null;}editingExp=null;editingMat=null;editingChem=null;editingSC=null;}
+
+// ─── Experiment form ───────────────────────────────────────────────────────
+function initExpForm(item){
+  document.getElementById('exp-alert').innerHTML='';
+  document.getElementById('panel-exp-title').textContent=item?'Experiment bearbeiten':'Neues Experiment';
+  document.getElementById('btn-del-exp').style.display=item?'':'none';
+  document.getElementById('f-exp-id').disabled=!!item;
+  fillSelectProj();
+  fillSelect('f-exp-person',personen,'Kuerzel',        p=>`${p.Kuerzel} – ${p.Vorname} ${p.Nachname}`);
+  document.getElementById('new-proj-fields').style.display='none';
+  if(item){
+    document.getElementById('f-exp-id').value=item.Experiment_ID||'';
+    document.getElementById('f-exp-proj').value=item.Projekt_Kuerzel||'';
+    document.getElementById('f-exp-datum').value=fmtDate(item.Datum)||'';
+    document.getElementById('f-exp-person').value=item.Person_Kuerzel||'';
+    document.getElementById('f-exp-parent').value=item.Parent_ID||'';
+    document.getElementById('f-exp-titel').value=item.Projekttitel||'';
+    document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
+    document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
+    document.getElementById('f-exp-komm').value=item.Kommentar||'';
+    document.getElementById('f-exp-id-hint').textContent='';
+  } else {
+    document.getElementById('f-exp-datum').value=new Date().toISOString().slice(0,10);
+    ['f-exp-id','f-exp-parent','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('f-exp-id-hint').textContent='';
+  }
+}
+function editExp(expId){const item=allExp.find(e=>e.Experiment_ID===expId);if(!item)return;editingExp=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-exp').classList.add('open');activePanel='exp';initExpForm(item);}
+function dupExp(expId){
+  const item=allExp.find(e=>e.Experiment_ID===expId);if(!item)return;
+  const prefix=item.Experiment_ID.replace(/-.*/, '');
+  const nums=allExp.filter(e=>e.Experiment_ID?.startsWith(prefix+'-')).map(e=>parseInt(e.Experiment_ID.split('-')[1])).filter(n=>Number.isFinite(n));
+  const newId=`${prefix}-${String(nums.length?Math.max(...nums)+1:1).padStart(3,'0')}`;
+  editingExp=null;
+  document.getElementById('overlay').classList.add('open');document.getElementById('panel-exp').classList.add('open');activePanel='exp';
+  initExpForm(null);
+  document.getElementById('f-exp-id').value=newId;
+  document.getElementById('f-exp-id-hint').textContent=`Dupliziert von ${item.Experiment_ID}`;
+  document.getElementById('f-exp-proj').value=item.Projekt_Kuerzel||'';
+  document.getElementById('f-exp-person').value=item.Person_Kuerzel||'';
+  document.getElementById('f-exp-parent').value=item.Parent_ID||'';
+  document.getElementById('f-exp-titel').value=item.Projekttitel||'';
+  document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
+  document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
+  document.getElementById('f-exp-komm').value=item.Kommentar||'';
+}
+function fillSelectProj(){
+  const sel=document.getElementById('f-exp-proj');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">– wählen –</option>';
+  projekte.forEach(p=>{const o=document.createElement('option');o.value=p.Projekt_Kuerzel;o.textContent=`${p.Projekt_Kuerzel} – ${p.Beschreibung||''}`;sel.appendChild(o);});
+  const newOpt=document.createElement('option');newOpt.value='__new__';newOpt.textContent='+ Neues Projekt anlegen…';newOpt.style.fontWeight='600';newOpt.style.color='#1e3a5f';sel.appendChild(newOpt);
+  if(cur)sel.value=cur;
+}
+function onProjSelect(){
+  const val=document.getElementById('f-exp-proj').value;
+  const fields=document.getElementById('new-proj-fields');
+  fields.style.display=val==='__new__'?'block':'none';
+  if(val!=='__new__')suggestExpId();
+  else{document.getElementById('f-exp-id').value='';document.getElementById('f-exp-id-hint').textContent='';}
+}
+function suggestExpId(){
+  if(editingExp)return;
+  const sel=document.getElementById('f-exp-proj');
+  const proj=sel.value==='__new__'?document.getElementById('f-new-proj-kuerzel').value.trim():sel.value;
+  if(!proj)return;
+  const nums=allExp.filter(e=>e.Experiment_ID?.startsWith(proj+'-')).map(e=>parseInt(e.Experiment_ID.split('-')[1])).filter(n=>Number.isFinite(n));
+  const sug=`${proj}-${String(nums.length?Math.max(...nums)+1:1).padStart(3,'0')}`;
+  document.getElementById('f-exp-id').value=sug;document.getElementById('f-exp-id-hint').textContent=`Nächste freie ID: ${sug}`;
+}
+async function saveExperiment(){
+  const alertEl=document.getElementById('exp-alert'),btn=document.getElementById('btn-save-exp');
+  const id=document.getElementById('f-exp-id').value.trim().toUpperCase();
+  const isNewProj=document.getElementById('f-exp-proj').value==='__new__';
+  let proj=isNewProj?document.getElementById('f-new-proj-kuerzel').value.trim().toUpperCase():document.getElementById('f-exp-proj').value;
+  const datum=document.getElementById('f-exp-datum').value,person=document.getElementById('f-exp-person').value;
+  if(!id||!proj||!datum||!person){alertEl.innerHTML='<div class="alert alert-err">Bitte alle Pflichtfelder (*) ausfüllen.</div>';return;}
+  if(isNewProj&&projekte.some(p=>p.Projekt_Kuerzel===proj)){alertEl.innerHTML=`<div class="alert alert-err">Projektkürzel „${proj}" existiert bereits.</div>`;return;}
+  if(!editingExp&&allExp.some(e=>e.Experiment_ID===id)){alertEl.innerHTML=`<div class="alert alert-err">ID „${id}" existiert bereits.</div>`;return;}
+  btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
+  try{
+    // 1. Neues Projekt anlegen falls nötig
+    if(isNewProj){
+      const beschreibung=document.getElementById('f-new-proj-beschreibung').value.trim();
+      await spPost(LIST.projekte,mapTo({Projekt_Kuerzel:proj,Beschreibung:beschreibung},FIELDS.projekte));
+      const newP={Projekt_Kuerzel:proj,Beschreibung:beschreibung};
+      projekte.push(newP);projekte.sort((a,b)=>a.Projekt_Kuerzel.localeCompare(b.Projekt_Kuerzel));
+      buildMs('ms-proj-panel',projekte,'Projekt_Kuerzel',p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''),selectedProj,'onProjChange');
+      buildMs('ms-res-proj-panel',projekte,'Projekt_Kuerzel',p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''),selectedResProj,'onResProjChange');
+    }
+    // 2. Experiment speichern
+    const int={Experiment_ID:id,Parent_ID:document.getElementById('f-exp-parent').value.trim()||'',Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim()};
+    const sp=mapTo(int,FIELDS.experimente);
+    if(editingExp){await spPatch(LIST.experimente,editingExp._spId,sp);Object.assign(editingExp,int);}
+    else{await spPost(LIST.experimente,sp);allExp.unshift({...int});}
+    cachedErgebnisse=computeErgebnisse();filterExp();filterRes();
+    alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent='Speichern';}
+}
+async function deleteExp(){
+  if(!editingExp||!confirm(`Experiment ${editingExp.Experiment_ID} wirklich löschen?`))return;
+  try{await spDelete(LIST.experimente,editingExp._spId);allExp=allExp.filter(e=>e._spId!==editingExp._spId);cachedErgebnisse=computeErgebnisse();filterExp();filterRes();closePanel();}
+  catch(e){document.getElementById('exp-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+}
+
+// ─── Material form ─────────────────────────────────────────────────────────
+let specIdx=0;
+function initMatForm(item){
+  document.getElementById('mat-alert').innerHTML='';
+  document.getElementById('panel-mat-title').textContent=item?'Messung bearbeiten':'Neue Messung(en)';
+  document.getElementById('btn-del-mat').style.display=item?'':'none';
+  document.getElementById('btn-save-mat').textContent=item?'Speichern':'Alle speichern';
+  document.getElementById('mat-multi-fields').style.display=item?'none':'';
+  document.getElementById('mat-single-fields').style.display=item?'':'none';
+  fillSelect('f-mat-lafo',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`);
+  if(item){
+    document.getElementById('f-mat-expid').value=item.Experiment_ID||'';
+    document.getElementById('f-mat-lafo').value=item.Lagerfolge_ID||'';
+    document.getElementById('f-mat-l').value=item.Laenge_mm??'';
+    document.getElementById('f-mat-b').value=item.Breite_mm??'';
+    document.getElementById('f-mat-f').value=item.Kraft_N??'';
+    document.getElementById('f-mat-h').value=item.Holzbruch_pct??'';
+    document.getElementById('f-mat-k').value=item.Kommentar||'';
+  } else {document.getElementById('f-mat-expid').value='';document.getElementById('spec-tbody').innerHTML='';specIdx=0;addSpecRow();addSpecRow();addSpecRow();}
+}
+function editMat(spId){const item=allMat.find(m=>m._spId===spId);if(!item)return;editingMat=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-mat').classList.add('open');activePanel='mat';initMatForm(item);}
+function addSpecRow(){const i=specIdx++;const tr=document.createElement('tr');tr.id='spec-row-'+i;tr.innerHTML=`<td><input type="number" id="sl-${i}" value="10" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sb-${i}" value="20" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sf-${i}" min="0" step="1" oninput="recalcMpa(${i})"></td><td class="mpa-cell" id="sm-${i}">–</td><td><input type="number" id="sh-${i}" min="0" max="1" step="0.01" placeholder="0–1"></td><td><input type="text" id="sk-${i}"></td><td><button class="del-btn" onclick="removeSpecRow(${i})">×</button></td>`;document.getElementById('spec-tbody').appendChild(tr);}
+function removeSpecRow(i){document.getElementById('spec-row-'+i)?.remove();}
+function recalcMpa(i){const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value,m=document.getElementById('sm-'+i);if(m){const v=calcMpa(l,b,f);m.textContent=v?v+' MPa':'–';}}
+async function saveMaterial(){
+  const alertEl=document.getElementById('mat-alert'),btn=document.getElementById('btn-save-mat');
+  const expId=document.getElementById('f-mat-expid').value.trim().toUpperCase(),lafo=document.getElementById('f-mat-lafo').value;
+  if(!expId||!lafo){alertEl.innerHTML='<div class="alert alert-err">Experiment-ID und Protokoll sind Pflichtfelder.</div>';return;}
+  btn.disabled=true;alertEl.innerHTML='';
+  try{
+    if(editingMat){
+      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(document.getElementById('f-mat-f').value)||null,Holzbruch_pct:document.getElementById('f-mat-h').value!==''?parseFloat(document.getElementById('f-mat-h').value):null,Kommentar:document.getElementById('f-mat-k').value||''};
+      await spPatch(LIST.material,editingMat._spId,mapTo(int,FIELDS.material));Object.assign(editingMat,int);
+    } else {
+      const rows=[];
+      document.querySelectorAll('#spec-tbody tr').forEach(tr=>{const i=tr.id.replace('spec-row-','');const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value;const h=document.getElementById('sh-'+i)?.value,k=document.getElementById('sk-'+i)?.value;if(l&&b&&f){const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(l),Breite_mm:parseFloat(b),Kraft_N:parseFloat(f),Holzbruch_pct:h!==''?parseFloat(h):null,Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.material)});}});
+      if(!rows.length){alertEl.innerHTML='<div class="alert alert-err">Keine gültigen Probekörper.</div>';btn.disabled=false;return;}
+      btn.textContent=`Speichert ${rows.length}…`;
+      const saved=await Promise.all(rows.map(r=>spPost(LIST.material,r.sp)));
+      saved.forEach((s,i)=>allMat.unshift({...rows[i].int,_spId:s.d.Id}));
+    }
+    computeMpaRanges();cachedErgebnisse=computeErgebnisse();filterMat();filterRes();
+    alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent=editingMat?'Speichern':'Alle speichern';}
+}
+async function deleteMat(){
+  if(!editingMat||!confirm('Messung wirklich löschen?'))return;
+  try{await spDelete(LIST.material,editingMat._spId);allMat=allMat.filter(m=>m._spId!==editingMat._spId);computeMpaRanges();cachedErgebnisse=computeErgebnisse();filterMat();filterRes();closePanel();}
+  catch(e){document.getElementById('mat-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+}
+
+// ─── SC form ───────────────────────────────────────────────────────────────
+let scIdx=0;
+function initSCForm(item){
+  document.getElementById('sc-alert').innerHTML='';
+  document.getElementById('panel-sc-title').textContent=item?'SC-Messung bearbeiten':'Feststoffgehalt erfassen';
+  document.getElementById('btn-del-sc').style.display=item?'':'none';
+  document.getElementById('btn-save-sc').textContent=item?'Speichern':'Alle speichern';
+  document.getElementById('sc-multi-fields').style.display=item?'none':'';
+  document.getElementById('sc-single-fields').style.display=item?'':'none';
+  if(item){
+    document.getElementById('f-sc-expid').value=item.Experiment_ID||'';
+    document.getElementById('f-sc-probe').value=item.Probe||'';
+    document.getElementById('f-sc-leer').value=item.Leergewicht_g??'';
+    document.getElementById('f-sc-ein').value=item.Einwaage_g??'';
+    document.getElementById('f-sc-end').value=item.Endgewicht_g??'';
+    document.getElementById('f-sc-komm').value=item.Kommentar||'';
+  } else {
+    document.getElementById('f-sc-expid').value='';
+    document.getElementById('sc-tbody').innerHTML='';
+    scIdx=0;addSCRow();
+  }
+}
+function editSC(spId){const item=allSC.find(s=>s._spId===spId);if(!item)return;editingSC=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-sc').classList.add('open');activePanel='sc';initSCForm(item);}
+function openSCPanel(expId){document.getElementById('overlay').classList.add('open');document.getElementById('panel-sc').classList.add('open');activePanel='sc';editingSC=null;initSCForm(null);if(expId)document.getElementById('f-sc-expid').value=expId;}
+function addSCRow(){const i=scIdx++;const tr=document.createElement('tr');tr.id='sc-row-'+i;tr.innerHTML=`<td><input type="text" id="sp-${i}" style="width:80px"></td><td><input type="number" id="sl-sc-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="se-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="sg-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td class="mpa-cell" id="ss-${i}" style="white-space:nowrap">–</td><td><input type="text" id="sk-sc-${i}" style="width:100px"></td><td><button class="del-btn" onclick="removeSCRow(${i})">×</button></td>`;document.getElementById('sc-tbody').appendChild(tr);}
+function removeSCRow(i){document.getElementById('sc-row-'+i)?.remove();}
+function recalcSC(i){const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,sc=document.getElementById('ss-'+i);if(sc){const v=calcSC(leer,ein,end);sc.textContent=v!=null?v.toFixed(2)+'%':'–';}}
+async function saveSC(){
+  const alertEl=document.getElementById('sc-alert'),btn=document.getElementById('btn-save-sc');
+  const expId=document.getElementById('f-sc-expid').value.trim().toUpperCase();
+  if(!expId){alertEl.innerHTML='<div class="alert alert-err">Experiment-ID ist Pflichtfeld.</div>';return;}
+  btn.disabled=true;alertEl.innerHTML='';
+  try{
+    if(editingSC){
+      const leer=document.getElementById('f-sc-leer').value,ein=document.getElementById('f-sc-ein').value,end=document.getElementById('f-sc-end').value;
+      if(!leer||!ein){alertEl.innerHTML='<div class="alert alert-err">Leergewicht und Einwaage sind Pflichtfelder.</div>';btn.disabled=false;return;}
+      const int={Experiment_ID:expId,Probe:document.getElementById('f-sc-probe').value.trim(),Leergewicht_g:parseFloat(leer),Einwaage_g:parseFloat(ein),Endgewicht_g:end!==''?parseFloat(end):null,Kommentar:document.getElementById('f-sc-komm').value.trim()};
+      await spPatch(LIST.feststoffgehalt,editingSC._spId,mapTo(int,FIELDS.feststoffgehalt));Object.assign(editingSC,int);
+    } else {
+      const rows=[];
+      document.querySelectorAll('#sc-tbody tr').forEach(tr=>{const i=tr.id.replace('sc-row-','');const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,probe=document.getElementById('sp-'+i)?.value,k=document.getElementById('sk-sc-'+i)?.value;if(leer&&ein){const int={Experiment_ID:expId,Probe:probe||'',Leergewicht_g:parseFloat(leer),Einwaage_g:parseFloat(ein),Endgewicht_g:end!==''?parseFloat(end):null,Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.feststoffgehalt)});}});
+      if(!rows.length){alertEl.innerHTML='<div class="alert alert-err">Keine gültigen Proben (Leergewicht + Einwaage erforderlich).</div>';btn.disabled=false;return;}
+      btn.textContent=`Speichert ${rows.length}…`;
+      const saved=await Promise.all(rows.map(r=>spPost(LIST.feststoffgehalt,r.sp)));
+      saved.forEach((s,i)=>allSC.unshift({...rows[i].int,_spId:s.d.Id}));
+    }
+    cachedErgebnisse=computeErgebnisse();filterRes();
+    alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent=editingSC?'Speichern':'Alle speichern';}
+}
+async function deleteSC(){
+  if(!editingSC||!confirm('SC-Messung wirklich löschen?'))return;
+  try{await spDelete(LIST.feststoffgehalt,editingSC._spId);allSC=allSC.filter(s=>s._spId!==editingSC._spId);cachedErgebnisse=computeErgebnisse();filterRes();closePanel();}
+  catch(e){document.getElementById('sc-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+}
+
+// ─── Chemikalien form ──────────────────────────────────────────────────────
+function initChemForm(item){
+  document.getElementById('chem-alert').innerHTML='';
+  document.getElementById('panel-chem-title').textContent=item?'Chemikalie bearbeiten':'Neue Chemikalie';
+  document.getElementById('btn-del-chem').style.display=item?'':'none';
+  document.getElementById('pubchem-status').textContent='';document.getElementById('pubchem-status').className='pubchem-status';
+  const dl=document.getElementById('hersteller-list');dl.innerHTML='';
+  [...new Set(allChem.map(c=>c.Hersteller).filter(Boolean))].sort().forEach(h=>{const o=document.createElement('option');o.value=h;dl.appendChild(o);});
+  if(item){
+    document.getElementById('f-chem-name').value=item.Chemikalie_Name||'';
+    document.getElementById('f-chem-formel').value=item.Formel||'';
+    document.getElementById('f-chem-iupac').value=item.IUPAC||'';
+    document.getElementById('f-chem-hersteller').value=item.Hersteller||'';
+    document.getElementById('f-chem-menge').value=item.Menge??'';
+    document.getElementById('f-chem-einheit').value=item.Einheit||'';
+    document.getElementById('f-chem-ort').value=item.Ort||'';
+    document.getElementById('f-chem-herkunft').value=item.Herkunft||'';
+    document.getElementById('f-chem-komm').value=item.Kommentar||'';
+  } else {
+    ['f-chem-name','f-chem-formel','f-chem-iupac','f-chem-hersteller','f-chem-einheit','f-chem-ort','f-chem-herkunft','f-chem-komm'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('f-chem-menge').value='';
+  }
+}
+function editChem(spId){const item=allChem.find(c=>c._spId===spId);if(!item)return;editingChem=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-chem').classList.add('open');activePanel='chem';initChemForm(item);}
+
+let pubchemTimer=null;
+function onChemNameInput(val){const status=document.getElementById('pubchem-status');clearTimeout(pubchemTimer);if(val.trim().length<3){status.textContent='';return;}status.textContent='Suche in PubChem…';status.className='pubchem-status';pubchemTimer=setTimeout(()=>fetchPubchem(val.trim()),600);}
+async function fetchPubchem(name){const status=document.getElementById('pubchem-status');try{const r=await fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(name)}/property/MolecularFormula,IUPACName/JSON`);if(!r.ok){status.textContent='Nicht in PubChem gefunden.';status.className='pubchem-status err';return;}const d=await r.json();const p=d?.PropertyTable?.Properties?.[0];if(!p){status.textContent='Nicht in PubChem gefunden.';status.className='pubchem-status err';return;}const fe=document.getElementById('f-chem-formel'),ie=document.getElementById('f-chem-iupac');if(!fe.value&&p.MolecularFormula)fe.value=p.MolecularFormula;if(!ie.value&&p.IUPACName)ie.value=p.IUPACName;status.textContent='✓ PubChem: Formel und IUPAC vorgeschlagen.';status.className='pubchem-status found';}catch(e){status.textContent='PubChem nicht erreichbar.';status.className='pubchem-status err';}}
+
+async function saveChem(){
+  const alertEl=document.getElementById('chem-alert'),btn=document.getElementById('btn-save-chem');
+  const name=document.getElementById('f-chem-name').value.trim();
+  if(!name){alertEl.innerHTML='<div class="alert alert-err">Name ist ein Pflichtfeld.</div>';return;}
+  btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
+  const int={Chemikalie_Name:name,IUPAC:document.getElementById('f-chem-iupac').value.trim(),Formel:document.getElementById('f-chem-formel').value.trim(),Hersteller:document.getElementById('f-chem-hersteller').value.trim(),Menge:document.getElementById('f-chem-menge').value!==''?parseFloat(document.getElementById('f-chem-menge').value):null,Einheit:document.getElementById('f-chem-einheit').value.trim(),Ort:document.getElementById('f-chem-ort').value.trim(),Herkunft:document.getElementById('f-chem-herkunft').value.trim(),Kommentar:document.getElementById('f-chem-komm').value.trim()};
+  try{
+    const sp=mapTo(int,FIELDS.chemikalien);
+    if(editingChem){await spPatch(LIST.chemikalien,editingChem._spId,sp);Object.assign(editingChem,int);}
+    else{const saved=await spPost(LIST.chemikalien,sp);allChem.push({...int,_spId:saved.d.Id});}
+    filterChem();alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent='Speichern';}
+}
+async function deleteChem(){
+  if(!editingChem||!confirm(`„${editingChem.Chemikalie_Name}" wirklich löschen?`))return;
+  try{await spDelete(LIST.chemikalien,editingChem._spId);allChem=allChem.filter(c=>c._spId!==editingChem._spId);filterChem();closePanel();}
+  catch(e){document.getElementById('chem-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+}

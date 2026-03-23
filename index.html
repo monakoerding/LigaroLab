@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LIGARO Lab</title>
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.0/lib/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>LIGARO Lab</h1>
+  <p>Bitte mit Microsoft-Account anmelden.</p>
+  <button class="btn btn-primary" onclick="login()" style="font-size:15px;padding:12px 28px">Mit Microsoft anmelden</button>
+  <p id="login-error" style="color:#c53030;font-size:13px"></p>
+</div>
+
+<div id="app" style="display:none">
+<header>
+  <h1>LIGARO Lab</h1>
+  <span id="status-msg"></span>
+  <span id="user-info"></span>
+</header>
+<nav>
+  <button class="active" onclick="showTab('exp',this)">Experimente</button>
+  <button onclick="showTab('mat',this)">Materialprüfung</button>
+  <button onclick="showTab('res',this)">Ergebnisse</button>
+  <button onclick="showTab('chem',this)">Chemikalien</button>
+</nav>
+<main>
+
+  <!-- EXPERIMENTE -->
+  <div id="pane-exp" class="pane active">
+    <div class="toolbar">
+      <input type="search" id="exp-search" placeholder="Suche nach ID, Titel, Beschreibung…" oninput="filterExp()">
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-proj-btn" onclick="toggleMs('proj')">Projekte <span id="ms-proj-count"></span>▾</button>
+        <div class="ms-panel" id="ms-proj-panel"><div class="ms-clear" onclick="clearMs('proj')">Alle abwählen</div></div>
+      </div>
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-pers-btn" onclick="toggleMs('pers')">Personen <span id="ms-pers-count"></span>▾</button>
+        <div class="ms-panel" id="ms-pers-panel"><div class="ms-clear" onclick="clearMs('pers')">Alle abwählen</div></div>
+      </div>
+      <label>von</label><input type="date" id="exp-date-from" onchange="filterExp()">
+      <label>bis</label><input type="date" id="exp-date-to" onchange="filterExp()">
+      <span class="row-count" id="exp-count"></span>
+      <button class="btn btn-primary" onclick="openPanel('exp')">+ Neues Experiment</button>
+    </div>
+    <div class="col-toggle">
+      <button class="active" onclick="setTextCol('Beschreibung',this)">Beschreibung</button>
+      <button onclick="setTextCol('Beobachtungen',this)">Beobachtungen</button>
+      <button onclick="setTextCol('Kommentar',this)">Kommentar</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th class="sortable" onclick="setSort('exp','Experiment_ID')">ID <span class="sort-ind" id="si-exp-Experiment_ID">↕</span></th>
+          <th>Titel</th>
+          <th class="sortable" onclick="setSort('exp','Datum')">Datum <span class="sort-ind" id="si-exp-Datum">▼</span></th>
+          <th>Person</th>
+          <th id="text-col-header">Beschreibung</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="exp-tbody"><tr><td colspan="6" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MATERIALPRÜFUNG -->
+  <div id="pane-mat" class="pane">
+    <div class="toolbar">
+      <input type="search" id="mat-search" placeholder="Suche nach Experiment-ID oder Titel…" oninput="filterMat()">
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-lafo-btn" onclick="toggleMs('lafo')">Protokolle <span id="ms-lafo-count"></span>▾</button>
+        <div class="ms-panel" id="ms-lafo-panel"><div class="ms-clear" onclick="clearMs('lafo')">Alle abwählen</div></div>
+      </div>
+      <label>von</label><input type="date" id="mat-date-from" onchange="filterMat()">
+      <label>bis</label><input type="date" id="mat-date-to" onchange="filterMat()">
+      <span class="row-count" id="mat-count"></span>
+      <button class="btn btn-primary" onclick="openPanel('mat')">+ Neue Messung(en)</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th class="sortable" onclick="setSort('mat','Experiment_ID')">Experiment <span class="sort-ind" id="si-mat-Experiment_ID">↕</span></th>
+          <th>Titel</th>
+          <th class="sortable" onclick="setSort('mat','_mpa')">MPa <span class="sort-ind" id="si-mat-_mpa">↕</span></th>
+          <th style="text-align:right">Holzbruch</th>
+          <th class="sortable" onclick="setSort('mat','Lagerfolge_ID')">Protokoll <span class="sort-ind" id="si-mat-Lagerfolge_ID">↕</span></th>
+          <th style="text-align:right">L × B</th>
+          <th style="text-align:right">Kraft (N)</th>
+          <th>Kommentar</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="mat-tbody"><tr><td colspan="9" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ERGEBNISSE -->
+  <div id="pane-res" class="pane">
+    <div class="toolbar">
+      <input type="search" id="res-search" placeholder="Suche nach ID, Titel…" oninput="filterRes()">
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-res-proj-btn" onclick="toggleMs('res-proj')">Projekte <span id="ms-res-proj-count"></span>▾</button>
+        <div class="ms-panel" id="ms-res-proj-panel"><div class="ms-clear" onclick="clearMs('res-proj')">Alle abwählen</div></div>
+      </div>
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-res-pers-btn" onclick="toggleMs('res-pers')">Personen <span id="ms-res-pers-count"></span>▾</button>
+        <div class="ms-panel" id="ms-res-pers-panel"><div class="ms-clear" onclick="clearMs('res-pers')">Alle abwählen</div></div>
+      </div>
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-res-lafo-btn" onclick="toggleMs('res-lafo')">Protokolle <span id="ms-res-lafo-count"></span>▾</button>
+        <div class="ms-panel" id="ms-res-lafo-panel"><div class="ms-clear" onclick="clearMs('res-lafo')">Alle abwählen</div></div>
+      </div>
+      <label>von</label><input type="date" id="res-date-from" onchange="filterRes()">
+      <label>bis</label><input type="date" id="res-date-to" onchange="filterRes()">
+      <span class="row-count" id="res-count"></span>
+      <button class="btn btn-secondary" onclick="exportExcel()">↓ Excel</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th class="sortable" onclick="setSort('res','Experiment_ID')">ID <span class="sort-ind" id="si-res-Experiment_ID">↕</span></th>
+          <th class="sortable" onclick="setSort('res','Titel')">Titel <span class="sort-ind" id="si-res-Titel">↕</span></th>
+          <th class="sortable" onclick="setSort('res','Datum')">Datum <span class="sort-ind" id="si-res-Datum">▼</span></th>
+          <th>Person</th>
+          <th class="sortable" onclick="setSort('res','Lagerfolge_ID')">Protokoll <span class="sort-ind" id="si-res-Lagerfolge_ID">↕</span></th>
+          <th style="text-align:right">n</th>
+          <th class="sortable" onclick="setSort('res','MWMpa')" style="text-align:right">MW MPa <span class="sort-ind" id="si-res-MWMpa">↕</span></th>
+          <th style="text-align:right">StdAbw MPa</th>
+          <th style="text-align:right">MW Holzbruch</th>
+          <th style="text-align:right;border-left:2px solid #e2e8f0">n SC</th>
+          <th class="sortable" onclick="setSort('res','MWSC')" style="text-align:right">MW SC% <span class="sort-ind" id="si-res-MWSC">↕</span></th>
+          <th style="text-align:right">StdAbw SC</th>
+        </tr></thead>
+        <tbody id="res-tbody"><tr><td colspan="12" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CHEMIKALIEN -->
+  <div id="pane-chem" class="pane">
+    <div class="toolbar">
+      <input type="search" id="chem-search" placeholder="Suche nach Name, Hersteller, Ort…" oninput="filterChem()">
+      <div class="ms-wrap">
+        <button class="ms-btn" id="ms-ort-btn" onclick="toggleMs('ort')">Orte <span id="ms-ort-count"></span>▾</button>
+        <div class="ms-panel" id="ms-ort-panel"><div class="ms-clear" onclick="clearMs('ort')">Alle abwählen</div></div>
+      </div>
+      <span class="row-count" id="chem-count"></span>
+      <button class="btn btn-primary" onclick="openPanel('chem')">+ Neue Chemikalie</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Name</th><th>Formel</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Ort</th><th>Herkunft</th><th>Kommentar</th><th></th></tr></thead>
+        <tbody id="chem-tbody"><tr><td colspan="10" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+
+<!-- Detail modal -->
+<div class="modal-overlay" id="detail-overlay" onclick="closeDetail(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="detail-title">Experiment</h2>
+      <button class="panel-close" onclick="closeDetailDirect()">×</button>
+    </div>
+    <div class="modal-body" id="detail-body"><div class="state">Lade…</div></div>
+  </div>
+</div>
+
+<!-- PANEL: Experiment -->
+<div class="panel" id="panel-exp">
+  <div class="panel-head"><h2 id="panel-exp-title">Neues Experiment</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="exp-alert"></div>
+    <div class="field-row">
+      <div class="field">
+        <label>Projekt <span class="req">*</span></label>
+        <select id="f-exp-proj" onchange="onProjSelect()"><option value="">– wählen –</option></select>
+        <div id="new-proj-fields" style="display:none;margin-top:8px;display:none">
+          <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+            <div><label style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Kürzel <span class="req">*</span></label><input type="text" id="f-new-proj-kuerzel" placeholder="z.B. MYPR" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'');suggestExpId()"></div>
+            <div><label style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Beschreibung</label><input type="text" id="f-new-proj-beschreibung" placeholder="Projektbeschreibung"></div>
+          </div>
+        </div>
+      </div>
+      <div class="field"><label>Datum <span class="req">*</span></label><input type="date" id="f-exp-datum"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Experiment-ID <span class="req">*</span></label><input type="text" id="f-exp-id" oninput="this.value=this.value.toUpperCase()"><div class="hint" id="f-exp-id-hint"></div></div>
+      <div class="field"><label>Person <span class="req">*</span></label><select id="f-exp-person"><option value="">– wählen –</option></select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Parent-ID</label><input type="text" id="f-exp-parent" oninput="this.value=this.value.toUpperCase()"><div class="hint">Nur bei Sub-Experimenten</div></div>
+      <div class="field"><label>Projekttitel</label><input type="text" id="f-exp-titel"></div>
+    </div>
+    <div class="field"><label>Beschreibung</label><textarea id="f-exp-beschreibung"></textarea></div>
+    <div class="field"><label>Beobachtungen</label><textarea id="f-exp-beob"></textarea></div>
+    <div class="field"><label>Kommentar</label><textarea id="f-exp-komm" style="min-height:52px"></textarea></div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-danger btn-sm" id="btn-del-exp" onclick="deleteExp()" style="margin-right:auto;display:none">Löschen</button>
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" id="btn-save-exp" onclick="saveExperiment()">Speichern</button>
+  </div>
+</div>
+
+<!-- PANEL: Materialprüfung -->
+<div class="panel" id="panel-mat">
+  <div class="panel-head"><h2 id="panel-mat-title">Neue Messung(en)</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="mat-alert"></div>
+    <div class="field-row">
+      <div class="field"><label>Experiment-ID <span class="req">*</span></label><input type="text" id="f-mat-expid" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="field"><label>Protokoll <span class="req">*</span></label><select id="f-mat-lafo"><option value="">– wählen –</option></select></div>
+    </div>
+    <div id="mat-single-fields" style="display:none">
+      <div class="field-row">
+        <div class="field"><label>Länge (mm)</label><input type="number" id="f-mat-l" min="0" step="0.1"></div>
+        <div class="field"><label>Breite (mm)</label><input type="number" id="f-mat-b" min="0" step="0.1"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Kraft (N)</label><input type="number" id="f-mat-f" min="0" step="1"></div>
+        <div class="field"><label>Holzbruch (0–1)</label><input type="number" id="f-mat-h" min="0" max="1" step="0.01"></div>
+      </div>
+      <div class="field"><label>Kommentar</label><input type="text" id="f-mat-k"></div>
+    </div>
+    <div id="mat-multi-fields">
+      <div class="field">
+        <label>Probekörper</label>
+        <div class="spec-wrap">
+          <table class="spec-table">
+            <thead><tr><th>L (mm)</th><th>B (mm)</th><th>Kraft (N)</th><th>MPa</th><th>Holzbruch (0–1)</th><th>Kommentar</th><th></th></tr></thead>
+            <tbody id="spec-tbody"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:9px" onclick="addSpecRow()">+ Zeile</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-danger btn-sm" id="btn-del-mat" onclick="deleteMat()" style="margin-right:auto;display:none">Löschen</button>
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" id="btn-save-mat" onclick="saveMaterial()">Alle speichern</button>
+  </div>
+</div>
+
+<!-- PANEL: Feststoffgehalt -->
+<div class="panel" id="panel-sc">
+  <div class="panel-head"><h2 id="panel-sc-title">Feststoffgehalt erfassen</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="sc-alert"></div>
+    <div class="field">
+      <label>Experiment-ID <span class="req">*</span></label>
+      <input type="text" id="f-sc-expid" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div id="sc-single-fields" style="display:none">
+      <div class="field-row">
+        <div class="field"><label>Probe</label><input type="text" id="f-sc-probe"></div>
+        <div class="field"><label>Leergewicht (g) <span class="req">*</span></label><input type="number" id="f-sc-leer" min="0" step="0.0001"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Einwaage (g) <span class="req">*</span></label><input type="number" id="f-sc-ein" min="0" step="0.0001"></div>
+        <div class="field"><label>Endgewicht (g)</label><input type="number" id="f-sc-end" min="0" step="0.0001" placeholder="–"></div>
+      </div>
+      <div class="field"><label>Kommentar</label><input type="text" id="f-sc-komm"></div>
+    </div>
+    <div id="sc-multi-fields">
+      <div class="field">
+        <label>Proben</label>
+        <div class="spec-wrap">
+          <table class="spec-table">
+            <thead><tr><th>Probe</th><th>Leergewicht (g)</th><th>Einwaage (g)</th><th>Endgewicht (g)</th><th>SC%</th><th>Kommentar</th><th></th></tr></thead>
+            <tbody id="sc-tbody"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:9px" onclick="addSCRow()">+ Zeile</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-danger btn-sm" id="btn-del-sc" onclick="deleteSC()" style="margin-right:auto;display:none">Löschen</button>
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" id="btn-save-sc" onclick="saveSC()">Alle speichern</button>
+  </div>
+</div>
+
+<!-- PANEL: Chemikalie -->
+<div class="panel" id="panel-chem">
+  <div class="panel-head"><h2 id="panel-chem-title">Neue Chemikalie</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="chem-alert"></div>
+    <div class="field">
+      <label>Name <span class="req">*</span></label>
+      <input type="text" id="f-chem-name" oninput="onChemNameInput(this.value)">
+      <div class="pubchem-status" id="pubchem-status"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Formel</label><input type="text" id="f-chem-formel" style="font-family:monospace"></div>
+      <div class="field"><label>IUPAC-Name</label><input type="text" id="f-chem-iupac"></div>
+    </div>
+    <div class="field">
+      <label>Hersteller</label>
+      <input type="text" id="f-chem-hersteller" list="hersteller-list" autocomplete="off">
+      <datalist id="hersteller-list"></datalist>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Menge</label><input type="number" id="f-chem-menge" min="0" step="any"></div>
+      <div class="field"><label>Einheit</label><input type="text" id="f-chem-einheit" placeholder="g, mL, …"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Ort</label><input type="text" id="f-chem-ort"></div>
+      <div class="field"><label>Herkunft</label><input type="text" id="f-chem-herkunft"></div>
+    </div>
+    <div class="field"><label>Kommentar</label><textarea id="f-chem-komm" style="min-height:52px"></textarea></div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-danger btn-sm" id="btn-del-chem" onclick="deleteChem()" style="margin-right:auto;display:none">Löschen</button>
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" id="btn-save-chem" onclick="saveChem()">Speichern</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

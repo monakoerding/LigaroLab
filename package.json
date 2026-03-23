@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@azure/msal-browser": "^5.5.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "pdf-parse": "^2.4.5"
+  }
+}
