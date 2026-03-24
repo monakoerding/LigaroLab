@@ -142,3 +142,7 @@
     /* Ergebnisse */
     .stat-cell { font-size:12px; }
     .stat-n { color:#888; font-size:11px; }
+
+    /* Attachments */
+    #attach-section label.btn { margin-top:10px; }
+    #attach-list a:hover { text-decoration:underline; }

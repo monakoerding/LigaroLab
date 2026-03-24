@@ -197,7 +197,17 @@
     </div>
     <div class="field-row">
       <div class="field"><label>Experiment-ID <span class="req">*</span></label><input type="text" id="f-exp-id" oninput="this.value=this.value.toUpperCase()"><div class="hint" id="f-exp-id-hint"></div></div>
-      <div class="field"><label>Person <span class="req">*</span></label><select id="f-exp-person"><option value="">– wählen –</option></select></div>
+      <div class="field">
+        <label>Person <span class="req">*</span></label>
+        <select id="f-exp-person" onchange="onPersonSelect()"><option value="">– wählen –</option></select>
+        <div id="new-pers-fields" style="display:none;margin-top:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div><label style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Kürzel <span class="req">*</span></label><input type="text" id="f-new-pers-kuerzel" placeholder="z.B. MK" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"></div>
+            <div><label style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Vorname</label><input type="text" id="f-new-pers-vorname"></div>
+            <div><label style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Nachname</label><input type="text" id="f-new-pers-nachname"></div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="field-row">
       <div class="field"><label>Parent-ID</label><input type="text" id="f-exp-parent" oninput="this.value=this.value.toUpperCase()"><div class="hint">Nur bei Sub-Experimenten</div></div>
@@ -251,6 +261,25 @@
     <button class="btn btn-danger btn-sm" id="btn-del-mat" onclick="deleteMat()" style="margin-right:auto;display:none">Löschen</button>
     <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
     <button class="btn btn-primary" id="btn-save-mat" onclick="saveMaterial()">Alle speichern</button>
+  </div>
+</div>
+
+<!-- SDS modal -->
+<div class="modal-overlay" id="sds-modal" onclick="if(event.target===this)closeSDS()">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-head">
+      <h2>Anhänge – <span id="sds-modal-name"></span></h2>
+      <button class="panel-close" onclick="closeSDS()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="sds-spid">
+      <input type="hidden" id="sds-expid">
+      <div id="sds-list" style="margin-bottom:16px"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="file" id="sds-file-input" multiple style="font-size:13px;flex:1">
+        <button class="btn btn-primary btn-sm" id="btn-upload-sds" onclick="uploadSDS()">Hochladen</button>
+      </div>
+    </div>
   </div>
 </div>
 

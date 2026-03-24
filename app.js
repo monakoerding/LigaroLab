@@ -72,6 +72,10 @@ async function spPost(listName,item){const token=await getToken();const[type,dig
 async function spPatch(listName,spId,item){const token=await getToken();const[type,digest]=await Promise.all([getEntityType(listName,token),getDigest(token)]);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${spId})`,{method:'POST',headers:{'Accept':'application/json;odata=verbose','Content-Type':'application/json;odata=verbose','X-RequestDigest':digest,'Authorization':'Bearer '+token,'X-HTTP-Method':'MERGE','IF-MATCH':'*'},body:JSON.stringify({__metadata:{type},...item})});if(!r.ok){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}}
 async function spDelete(listName,spId){const token=await getToken();const digest=await getDigest(token);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${spId})`,{method:'POST',headers:{'Accept':'application/json;odata=verbose','X-RequestDigest':digest,'Authorization':'Bearer '+token,'X-HTTP-Method':'DELETE','IF-MATCH':'*'}});if(!r.ok&&r.status!==204){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}}
 
+async function spGetAttachments(listName,itemId){const token=await getToken();const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${itemId})/AttachmentFiles`,{headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});if(!r.ok)return[];const d=await r.json();return d.d.results;}
+async function spAttach(listName,itemId,fileName,fileData){const token=await getToken();const digest=await getDigest(token);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(fileName)}')`,{method:'POST',headers:{Accept:'application/json;odata=verbose','X-RequestDigest':digest,Authorization:'Bearer '+token},body:fileData});if(!r.ok){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}return r.json();}
+async function spDeleteAttachment(listName,itemId,fileName){const token=await getToken();const digest=await getDigest(token);await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${itemId})/AttachmentFiles('${encodeURIComponent(fileName)}')`,{method:'POST',headers:{Accept:'application/json;odata=verbose','X-RequestDigest':digest,Authorization:'Bearer '+token,'X-HTTP-Method':'DELETE','IF-MATCH':'*'}});}
+
 // ─── MPa color ────────────────────────────────────────────────────────────
 function computeMpaRanges(){mpaRanges={};allMat.forEach(m=>{const v=parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N));if(isNaN(v))return;const id=m.Lagerfolge_ID||'';if(!mpaRanges[id])mpaRanges[id]={min:v,max:v};mpaRanges[id].min=Math.min(mpaRanges[id].min,v);mpaRanges[id].max=Math.max(mpaRanges[id].max,v);});}
 function mpaStyle(mpa,lafoId){const r=mpaRanges[lafoId];if(!r||r.max===r.min)return'';const pct=(parseFloat(mpa)-r.min)/(r.max-r.min);if((lafoId||'').toUpperCase().includes('WET')){return`background:hsl(280,${Math.round(pct*65)}%,${Math.round(88-pct*8)}%);`;}else{return`background:hsl(120,${Math.round(pct*65)}%,${Math.round(88-pct*6)}%);`;}}
@@ -395,7 +399,10 @@ function filterChem(){
           <td>${esc(c.Ort)}</td>
           <td>${esc(c.Herkunft)}</td>
           <td class="truncate">${esc(c.Kommentar)}</td>
-          <td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editChem(${spId})">✏️</button></td>
+          <td class="col-actions" onclick="event.stopPropagation()" style="width:60px">
+            <button class="btn-icon" title="SDS / Anhänge" onclick="openSDS(${spId},'${esc(c.Chemikalie_Name)}')">📄</button>
+            <button class="btn-icon" title="Bearbeiten" onclick="editChem(${spId})">✏️</button>
+          </td>
         </tr>${expandRow}`;
       }).join('')
     :allChem.length===0
@@ -416,6 +423,7 @@ async function openDetail(event,expId){
     catch(e){kompsNote=e.message.includes('404')?'<p class="modal-warn">Komponenten-Liste noch nicht in SharePoint vorhanden.</p>':`<p class="modal-warn">Fehler: ${esc(e.message)}</p>`;}
     const mats=allMat.filter(m=>m.Experiment_ID===expId);
     const exp=allExp.find(e=>e.Experiment_ID===expId);
+    const attachments=exp?await spGetAttachments(LIST.experimente,exp._spId).catch(()=>[]):[];
     let html='';
     html+='<div class="modal-section"><h3>Zusammensetzung</h3>';
     if(kompsNote)html+=kompsNote;
@@ -432,11 +440,98 @@ async function openDetail(event,expId){
     else html+='<p class="modal-empty">Keine SC-Messungen vorhanden. <button class="btn btn-secondary btn-sm" onclick="openSCPanel(\''+esc(expId)+'\');closeDetailDirect()">SC erfassen</button></p>';
     html+='</div>';
     if(exp&&(exp.Beschreibung||exp.Beobachtungen||exp.Kommentar)){html+='<div class="modal-section"><h3>Notizen</h3>';if(exp.Beschreibung)html+=`<div class="extra-label">Beschreibung</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beschreibung)}</p>`;if(exp.Beobachtungen)html+=`<div class="extra-label">Beobachtungen</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beobachtungen)}</p>`;if(exp.Kommentar)html+=`<div class="extra-label">Kommentar</div><p style="font-size:13px;white-space:pre-wrap">${esc(exp.Kommentar)}</p>`;html+='</div>';}
+    if(exp){
+      html+='<div class="modal-section" id="attach-section"><h3>Anhänge</h3>';
+      html+=renderAttachmentList(attachments,LIST.experimente,exp._spId);
+      html+=`<label class="btn btn-secondary btn-sm" style="cursor:pointer;margin-top:8px;display:inline-block">📎 Datei hochladen<input type="file" multiple style="display:none" onchange="uploadAttachments(this,'${LIST.experimente}',${exp._spId})"></label>`;
+      html+='</div>';
+    }
     document.getElementById('detail-body').innerHTML=html;
   }catch(e){document.getElementById('detail-body').innerHTML=`<p class="modal-empty">Fehler: ${esc(e.message)}</p>`;}
 }
 function closeDetail(e){if(e.target===document.getElementById('detail-overlay'))closeDetailDirect();}
 function closeDetailDirect(){document.getElementById('detail-overlay').classList.remove('open');}
+
+// ─── Attachments ───────────────────────────────────────────────────────────
+function renderAttachmentList(attachments,listName,itemId){
+  if(!attachments.length)return'<p class="modal-empty" id="attach-empty">Noch keine Anhänge.</p>';
+  return'<div id="attach-list">'+attachments.map(a=>{
+    const name=esc(a.FileName);
+    const url=esc(a.ServerRelativeUrl);
+    return`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f2f5">
+      <span style="font-size:16px">${fileIcon(a.FileName)}</span>
+      <a href="${SP}${url}" target="_blank" style="font-size:13px;flex:1;color:#1e3a5f;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</a>
+      <button class="btn-icon" title="Löschen" onclick="deleteAttachment('${listName}',${itemId},'${name}',this)">🗑️</button>
+    </div>`;
+  }).join('')+'</div>';
+}
+function fileIcon(name){const ext=(name||'').split('.').pop().toLowerCase();if(['jpg','jpeg','png','gif','webp'].includes(ext))return'🖼️';if(ext==='pdf')return'📄';return'📎';}
+async function uploadAttachments(input,listName,itemId){
+  const files=[...input.files];if(!files.length)return;
+  const section=document.getElementById('attach-section');
+  const status=document.createElement('p');status.style.fontSize='12px';status.style.color='#888';status.textContent=`Lade ${files.length} Datei(en)…`;section.appendChild(status);
+  input.disabled=true;
+  try{
+    for(const f of files){
+      const buf=await f.arrayBuffer();
+      await spAttach(listName,itemId,f.name,buf);
+    }
+    const attachments=await spGetAttachments(listName,itemId);
+    const existing=document.getElementById('attach-list')||document.getElementById('attach-empty');
+    if(existing){const newList=document.createElement('div');newList.innerHTML=renderAttachmentList(attachments,listName,itemId);existing.replaceWith(...newList.childNodes);}
+    status.textContent=`✓ ${files.length} Datei(en) hochgeladen.`;status.style.color='#1a6b3c';
+  }catch(e){status.textContent='Fehler: '+e.message;status.style.color='#c53030';}
+  finally{input.value='';input.disabled=false;}
+}
+async function deleteAttachment(listName,itemId,fileName,btn){
+  if(!confirm(`„${fileName}" wirklich löschen?`))return;
+  btn.disabled=true;
+  try{
+    await spDeleteAttachment(listName,itemId,fileName);
+    const attachments=await spGetAttachments(listName,itemId);
+    const existing=document.getElementById('attach-list')||document.getElementById('attach-empty');
+    if(existing){const newList=document.createElement('div');newList.innerHTML=renderAttachmentList(attachments,listName,itemId);existing.replaceWith(...newList.childNodes);}
+  }catch(e){alert('Fehler: '+e.message);btn.disabled=false;}
+}
+
+// ─── SDS (Sicherheitsdatenblatt) ───────────────────────────────────────────
+async function openSDS(spId,chemName){
+  const attachments=await spGetAttachments(LIST.chemikalien,spId).catch(()=>[]);
+  const sds=attachments.filter(a=>a.FileName.toLowerCase().includes('sds')||a.FileName.toLowerCase().includes('sicherheit')||a.FileName.toLowerCase().endsWith('.pdf'));
+  if(sds.length===1&&!attachments.find(a=>a!==sds[0])){
+    window.open(SP+sds[0].ServerRelativeUrl,'_blank');return;
+  }
+  // show quick picker
+  const modal=document.getElementById('sds-modal');
+  document.getElementById('sds-modal-name').textContent=chemName;
+  document.getElementById('sds-list').innerHTML=attachments.length
+    ?attachments.map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f2f5">
+        <span>${fileIcon(a.FileName)}</span>
+        <a href="${SP}${esc(a.ServerRelativeUrl)}" target="_blank" style="flex:1;font-size:13px;color:#1e3a5f">${esc(a.FileName)}</a>
+        <button class="btn-icon" onclick="deleteAttachment('${LIST.chemikalien}',${spId},'${esc(a.FileName)}',this);this.closest('[id=sds-list]').querySelector('a')?.click()">🗑️</button>
+      </div>`).join('')
+    :'<p class="modal-empty">Noch keine Anhänge.</p>';
+  document.getElementById('sds-expid').value='';
+  document.getElementById('sds-spid').value=spId;
+  modal.classList.add('open');
+}
+function closeSDS(){document.getElementById('sds-modal').classList.remove('open');}
+async function uploadSDS(){
+  const input=document.getElementById('sds-file-input');const files=[...input.files];if(!files.length)return;
+  const spId=parseInt(document.getElementById('sds-spid').value);
+  const btn=document.getElementById('btn-upload-sds');btn.disabled=true;btn.textContent='Lädt…';
+  try{
+    for(const f of files){await spAttach(LIST.chemikalien,spId,f.name,await f.arrayBuffer());}
+    const attachments=await spGetAttachments(LIST.chemikalien,spId);
+    document.getElementById('sds-list').innerHTML=attachments.map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f2f5">
+      <span>${fileIcon(a.FileName)}</span>
+      <a href="${SP}${esc(a.ServerRelativeUrl)}" target="_blank" style="flex:1;font-size:13px;color:#1e3a5f">${esc(a.FileName)}</a>
+      <button class="btn-icon" onclick="deleteAttachment('${LIST.chemikalien}',${spId},'${esc(a.FileName)}',this)">🗑️</button>
+    </div>`).join('');
+    input.value='';
+  }catch(e){alert('Fehler: '+e.message);}
+  finally{btn.disabled=false;btn.textContent='Hochladen';}
+}
 
 // ─── Panels ───────────────────────────────────────────────────────────────
 let activePanel=null;
@@ -450,8 +545,9 @@ function initExpForm(item){
   document.getElementById('btn-del-exp').style.display=item?'':'none';
   document.getElementById('f-exp-id').disabled=!!item;
   fillSelectProj();
-  fillSelect('f-exp-person',personen,'Kuerzel',        p=>`${p.Kuerzel} – ${p.Vorname} ${p.Nachname}`);
+  fillSelectPers();
   document.getElementById('new-proj-fields').style.display='none';
+  document.getElementById('new-pers-fields').style.display='none';
   if(item){
     document.getElementById('f-exp-id').value=item.Experiment_ID||'';
     document.getElementById('f-exp-proj').value=item.Projekt_Kuerzel||'';
@@ -488,6 +584,18 @@ function dupExp(expId){
   document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
   document.getElementById('f-exp-komm').value=item.Kommentar||'';
 }
+function fillSelectPers(){
+  const sel=document.getElementById('f-exp-person');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">– wählen –</option>';
+  personen.forEach(p=>{const o=document.createElement('option');o.value=p.Kuerzel;o.textContent=`${p.Kuerzel} – ${p.Vorname} ${p.Nachname}`;sel.appendChild(o);});
+  const newOpt=document.createElement('option');newOpt.value='__new__';newOpt.textContent='+ Neue Person anlegen…';newOpt.style.fontWeight='600';newOpt.style.color='#1e3a5f';sel.appendChild(newOpt);
+  if(cur)sel.value=cur;
+}
+function onPersonSelect(){
+  const val=document.getElementById('f-exp-person').value;
+  document.getElementById('new-pers-fields').style.display=val==='__new__'?'block':'none';
+}
 function fillSelectProj(){
   const sel=document.getElementById('f-exp-proj');
   const cur=sel.value;
@@ -516,10 +624,13 @@ async function saveExperiment(){
   const alertEl=document.getElementById('exp-alert'),btn=document.getElementById('btn-save-exp');
   const id=document.getElementById('f-exp-id').value.trim().toUpperCase();
   const isNewProj=document.getElementById('f-exp-proj').value==='__new__';
+  const isNewPers=document.getElementById('f-exp-person').value==='__new__';
   let proj=isNewProj?document.getElementById('f-new-proj-kuerzel').value.trim().toUpperCase():document.getElementById('f-exp-proj').value;
-  const datum=document.getElementById('f-exp-datum').value,person=document.getElementById('f-exp-person').value;
+  let person=isNewPers?document.getElementById('f-new-pers-kuerzel').value.trim().toUpperCase():document.getElementById('f-exp-person').value;
+  const datum=document.getElementById('f-exp-datum').value;
   if(!id||!proj||!datum||!person){alertEl.innerHTML='<div class="alert alert-err">Bitte alle Pflichtfelder (*) ausfüllen.</div>';return;}
   if(isNewProj&&projekte.some(p=>p.Projekt_Kuerzel===proj)){alertEl.innerHTML=`<div class="alert alert-err">Projektkürzel „${proj}" existiert bereits.</div>`;return;}
+  if(isNewPers&&personen.some(p=>p.Kuerzel===person)){alertEl.innerHTML=`<div class="alert alert-err">Kürzel „${person}" existiert bereits.</div>`;return;}
   if(!editingExp&&allExp.some(e=>e.Experiment_ID===id)){alertEl.innerHTML=`<div class="alert alert-err">ID „${id}" existiert bereits.</div>`;return;}
   btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
   try{
@@ -531,6 +642,14 @@ async function saveExperiment(){
       projekte.push(newP);projekte.sort((a,b)=>a.Projekt_Kuerzel.localeCompare(b.Projekt_Kuerzel));
       buildMs('ms-proj-panel',projekte,'Projekt_Kuerzel',p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''),selectedProj,'onProjChange');
       buildMs('ms-res-proj-panel',projekte,'Projekt_Kuerzel',p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''),selectedResProj,'onResProjChange');
+    }
+    // 1b. Neue Person anlegen falls nötig
+    if(isNewPers){
+      const vorname=document.getElementById('f-new-pers-vorname').value.trim();
+      const nachname=document.getElementById('f-new-pers-nachname').value.trim();
+      await spPost(LIST.personen,mapTo({Kuerzel:person,Vorname:vorname,Nachname:nachname},FIELDS.personen));
+      personen.push({Kuerzel:person,Vorname:vorname,Nachname:nachname});
+      personen.sort((a,b)=>a.Kuerzel.localeCompare(b.Kuerzel));
     }
     // 2. Experiment speichern
     const int={Experiment_ID:id,Parent_ID:document.getElementById('f-exp-parent').value.trim()||'',Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim()};
