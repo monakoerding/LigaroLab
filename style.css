@@ -146,3 +146,9 @@
     /* Attachments */
     #attach-section label.btn { margin-top:10px; }
     #attach-list a:hover { text-decoration:underline; }
+
+    /* Experiment title column – truncated by default, full when expanded or wrap-mode */
+    .exp-titel-td { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    tr.exp-row.expanded .exp-titel-td,
+    #pane-exp.wrap-mode .exp-titel-td { white-space:normal; overflow:visible; text-overflow:clip; max-width:none; }
+    #pane-exp.wrap-mode .text-cell.collapsed { white-space:pre-wrap; overflow:visible; }

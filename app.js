@@ -142,6 +142,14 @@ function onResProjChange(cb){cb.checked?selectedResProj.add(cb.value):selectedRe
 function onResPersChange(cb){cb.checked?selectedResPers.add(cb.value):selectedResPers.delete(cb.value);updateMsBtn('res-pers',selectedResPers);filterRes();}
 function onResLafoChange(cb){cb.checked?selectedResLafo.add(cb.value):selectedResLafo.delete(cb.value);updateMsBtn('res-lafo',selectedResLafo);filterRes();}
 
+function checkDupExpId(input){
+  const val=input.value;
+  const isDup=val&&!editingExp&&allExp.some(e=>e.Experiment_ID===val);
+  input.style.borderColor=isDup?'#f59e0b':'';
+  input.style.background=isDup?'#fffbeb':'';
+  const hint=document.getElementById('f-exp-id-hint');
+  if(hint){if(isDup)hint.textContent='⚠ Diese ID existiert bereits – bitte ändern!';else if(hint.textContent.startsWith('⚠'))hint.textContent='';}
+}
 function setTextCol(col,btn){activeTextCol=col;document.querySelectorAll('.col-toggle button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById('text-col-header').textContent=col;filterExp();}
 
 // ─── Load all ─────────────────────────────────────────────────────────────
@@ -179,7 +187,7 @@ async function loadAll(){
   }catch(e){
     setStatus('Fehler: '+e.message);console.error(e);
     document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="7" class="state">${esc(e.message)}</td></tr>`;
-    document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="11" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="10" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('res-tbody').innerHTML=`<tr><td colspan="12" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('lafo-tbody').innerHTML=`<tr><td colspan="5" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('mach-tbody').innerHTML=`<tr><td colspan="6" class="state">${esc(e.message)}</td></tr>`;
@@ -213,16 +221,10 @@ function filterExp(){
         const paramTip=hasPress?[mach?`Presse: ${mach.Name}`:presseK?`Presse: ${presseK}`:'',pd!==''?`${pd} N/mm²`:'',pt!==''?`${pt} °C`:'',pz!==''?`${pz} min`:''].filter(Boolean).join(', '):'';
         return `<tr class="exp-row" id="erow-${eid}" onclick="toggleExpRow('${eid}')">
           <td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.Projekttitel)}</td>
+          <td class="exp-titel-td" id="etit-${eid}" title="${esc(e.Projekttitel)}">${esc(e.Projekttitel)}</td>
           <td style="white-space:nowrap">${fmtDate(e.Datum)}</td>
           <td>${esc(e.Person_Kuerzel)}</td>
-          <td class="text-cell collapsed" id="tc-${eid}">${text}
-            <div class="extra-fields" id="ef-${eid}">
-              <div class="extra-label">Beschreibung</div>${esc(e.Beschreibung||'')}
-              <div class="extra-label">Beobachtungen</div>${esc(e.Beobachtungen||'')}
-              <div class="extra-label">Kommentar</div>${esc(e.Kommentar||'')}
-            </div>
-          </td>
+          <td class="text-cell collapsed" id="tc-${eid}">${text}</td>
           <td style="white-space:nowrap;font-size:11px;color:#666;font-family:monospace" title="${esc(paramTip)}">${esc(paramShort)}</td>
           <td class="col-actions" onclick="event.stopPropagation()" style="width:88px">
             <button class="btn-icon" title="Bearbeiten" onclick="editExp('${eid}')">✏️</button>
@@ -234,7 +236,8 @@ function filterExp(){
     :'<tr><td colspan="7" class="state">Keine Einträge gefunden.</td></tr>';
 }
 
-function toggleExpRow(expId){const row=document.getElementById('erow-'+expId);const tc=document.getElementById('tc-'+expId);const ef=document.getElementById('ef-'+expId);if(!row)return;const exp=!row.classList.contains('expanded');row.classList.toggle('expanded',exp);tc.classList.toggle('collapsed',!exp);tc.classList.toggle('expanded-text',exp);ef.classList.toggle('show',exp);}
+function toggleExpRow(expId){const row=document.getElementById('erow-'+expId);const tc=document.getElementById('tc-'+expId);if(!row)return;const exp=!row.classList.contains('expanded');row.classList.toggle('expanded',exp);if(tc){tc.classList.toggle('collapsed',!exp);tc.classList.toggle('expanded-text',exp);}}
+function toggleAllWrap(on){document.getElementById('pane-exp').classList.toggle('wrap-mode',on);}
 
 // ─── Material list ─────────────────────────────────────────────────────────
 function filterMat(){
@@ -263,20 +266,19 @@ function filterMat(){
         const exp=allExp.find(e=>e.Experiment_ID===m.Experiment_ID);
         const titel=esc(exp?.Projekttitel||'');
         return `<tr>
-          <td style="white-space:nowrap"><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
-          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#555">${titel}</td>
+          <td style="white-space:nowrap;width:110px"><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#555" title="${titel}">${titel}</td>
           <td style="white-space:nowrap;font-size:12px;color:#666">${fmtDate(m._datum)}</td>
           <td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td>
           <td style="text-align:right;font-size:12px">${hb}</td>
           <td style="white-space:nowrap;font-size:12px">${esc(m.Lagerfolge_ID)}</td>
-          <td style="white-space:nowrap;font-size:11px;color:#555;width:32px;text-align:center">${esc(m.Maschine)}</td>
           <td style="text-align:right;font-size:12px;white-space:nowrap">${lxb}</td>
           <td style="text-align:right;font-size:12px">${m.Kraft_N??''}</td>
           <td class="truncate" style="font-size:12px">${esc(m.Kommentar)}</td>
           <td class="col-actions"><button class="btn-icon" title="Bearbeiten" onclick="editMat(${m._spId})">✏️</button></td>
         </tr>`;
       }).join('')
-    :'<tr><td colspan="11" class="state">Keine Einträge gefunden.</td></tr>';
+    :'<tr><td colspan="10" class="state">Keine Einträge gefunden.</td></tr>';
 }
 
 // ─── Ergebnisse ───────────────────────────────────────────────────────────
@@ -601,7 +603,8 @@ async function deleteMach(){
 // ─── Detail modal ──────────────────────────────────────────────────────────
 async function openDetail(event,expId){
   event.stopPropagation();
-  document.getElementById('detail-title').textContent='Experiment '+expId;
+  const expForTitle=allExp.find(e=>e.Experiment_ID===expId);
+  document.getElementById('detail-title').textContent=expId+(expForTitle?.Projekttitel?' – '+expForTitle.Projekttitel:'');
   document.getElementById('detail-body').innerHTML='<div class="state">Lade…</div>';
   document.getElementById('detail-overlay').classList.add('open');
   try{
@@ -776,7 +779,10 @@ function initExpForm(item){
   } else {
     document.getElementById('f-exp-datum').value=new Date().toISOString().slice(0,10);
     ['f-exp-id','f-exp-parent','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
-    ['f-exp-pressdruck','f-exp-presstemperatur','f-exp-presszeit'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('f-exp-presse').value='P1';
+    document.getElementById('f-exp-pressdruck').value='0.7';
+    document.getElementById('f-exp-presstemperatur').value='140';
+    document.getElementById('f-exp-presszeit').value='10';
     document.getElementById('f-exp-id-hint').textContent='';
   }
 }
@@ -937,7 +943,7 @@ function initMatForm(item){
     document.getElementById('f-mat-f').value=item.Kraft_N??'';
     document.getElementById('f-mat-h').value=item.Holzbruch_pct??'';
     document.getElementById('f-mat-k').value=item.Kommentar||'';
-  } else {document.getElementById('f-mat-expid').value='';document.getElementById('f-mat-maschine').value='';document.getElementById('spec-tbody').innerHTML='';specIdx=0;addSpecRow();addSpecRow();addSpecRow();}
+  } else {document.getElementById('f-mat-expid').value='';document.getElementById('f-mat-maschine').value='Z2';document.getElementById('f-mat-lafo').value='LAFO-DRY-01';document.getElementById('spec-tbody').innerHTML='';specIdx=0;addSpecRow();addSpecRow();addSpecRow();}
 }
 function editMat(spId){const item=allMat.find(m=>m._spId===spId);if(!item)return;editingMat=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-mat').classList.add('open');activePanel='mat';initMatForm(item);}
 function addSpecRow(){const i=specIdx++;const tr=document.createElement('tr');tr.id='spec-row-'+i;tr.innerHTML=`<td><input type="number" id="sl-${i}" value="10" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sb-${i}" value="20" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sf-${i}" min="0" step="1" oninput="recalcMpa(${i})"></td><td class="mpa-cell" id="sm-${i}">–</td><td><input type="number" id="sh-${i}" min="0" max="1" step="0.01" placeholder="0–1"></td><td><input type="text" id="sk-${i}"></td><td><button class="del-btn" onclick="removeSpecRow(${i})">×</button></td>`;document.getElementById('spec-tbody').appendChild(tr);}
