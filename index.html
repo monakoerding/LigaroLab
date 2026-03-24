@@ -28,6 +28,8 @@
   <button onclick="showTab('mat',this)">Materialprüfung</button>
   <button onclick="showTab('res',this)">Ergebnisse</button>
   <button onclick="showTab('chem',this)">Chemikalien</button>
+  <button onclick="showTab('lafo',this)">Lagerfolgen</button>
+  <button onclick="showTab('mach',this)">Maschinen</button>
 </nav>
 <main>
 
@@ -61,9 +63,10 @@
           <th class="sortable" onclick="setSort('exp','Datum')">Datum <span class="sort-ind" id="si-exp-Datum">▼</span></th>
           <th>Person</th>
           <th id="text-col-header">Beschreibung</th>
+          <th style="white-space:nowrap;font-size:11px">Parameter</th>
           <th></th>
         </tr></thead>
-        <tbody id="exp-tbody"><tr><td colspan="6" class="state">Lade…</td></tr></tbody>
+        <tbody id="exp-tbody"><tr><td colspan="7" class="state">Lade…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -90,12 +93,13 @@
           <th class="sortable" onclick="setSort('mat','_mpa')">MPa <span class="sort-ind" id="si-mat-_mpa">↕</span></th>
           <th style="text-align:right">Holzbruch</th>
           <th class="sortable" onclick="setSort('mat','Lagerfolge_ID')">Protokoll <span class="sort-ind" id="si-mat-Lagerfolge_ID">↕</span></th>
+          <th style="text-align:center;width:40px">Masch.</th>
           <th style="text-align:right">L × B</th>
           <th style="text-align:right">Kraft (N)</th>
           <th>Kommentar</th>
           <th></th>
         </tr></thead>
-        <tbody id="mat-tbody"><tr><td colspan="10" class="state">Lade…</td></tr></tbody>
+        <tbody id="mat-tbody"><tr><td colspan="11" class="state">Lade…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -161,6 +165,46 @@
     </div>
   </div>
 
+
+  <!-- LAGERFOLGEN -->
+  <div id="pane-lafo" class="pane">
+    <div class="toolbar">
+      <input type="search" id="lafo-search" placeholder="Suche nach ID, Name, Norm…" oninput="filterLafo()">
+      <span class="row-count" id="lafo-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:20px"></th>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Norm</th>
+        </tr></thead>
+        <tbody id="lafo-tbody"><tr><td colspan="4" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MASCHINEN -->
+  <div id="pane-mach" class="pane">
+    <div class="toolbar">
+      <input type="search" id="mach-search" placeholder="Suche nach Kürzel, Name, Typ…" oninput="filterMasch()">
+      <span class="row-count" id="mach-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:48px">Kürzel</th>
+          <th>Name</th>
+          <th>Hersteller</th>
+          <th>Typ</th>
+          <th>Kommentar</th>
+        </tr></thead>
+        <tbody id="mach-tbody"><tr><td colspan="5" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
 </main>
 </div>
 
@@ -213,6 +257,14 @@
       <div class="field"><label>Parent-ID</label><input type="text" id="f-exp-parent" oninput="this.value=this.value.toUpperCase()"><div class="hint">Nur bei Sub-Experimenten</div></div>
       <div class="field"><label>Projekttitel</label><input type="text" id="f-exp-titel"></div>
     </div>
+    <div class="field-row">
+      <div class="field"><label>Presse</label><select id="f-exp-presse"><option value="">– keine –</option></select></div>
+      <div class="field"><label>Pressdruck (N/mm²)</label><input type="number" id="f-exp-pressdruck" min="0" step="0.01"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Presstemperatur (°C)</label><input type="number" id="f-exp-presstemperatur" min="0" step="1"></div>
+      <div class="field"><label>Presszeit (min)</label><input type="number" id="f-exp-presszeit" min="0" step="0.1"></div>
+    </div>
     <div class="field"><label>Beschreibung</label><textarea id="f-exp-beschreibung"></textarea></div>
     <div class="field"><label>Beobachtungen</label><textarea id="f-exp-beob"></textarea></div>
     <div class="field"><label>Kommentar</label><textarea id="f-exp-komm" style="min-height:52px"></textarea></div>
@@ -232,6 +284,9 @@
     <div class="field-row">
       <div class="field"><label>Experiment-ID <span class="req">*</span></label><input type="text" id="f-mat-expid" list="mat-expid-list" autocomplete="off" oninput="this.value=this.value.toUpperCase()"><datalist id="mat-expid-list"></datalist></div>
       <div class="field"><label>Protokoll <span class="req">*</span></label><select id="f-mat-lafo"><option value="">– wählen –</option></select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Maschine</label><select id="f-mat-maschine"><option value="">– keine –</option></select></div>
     </div>
     <div id="mat-single-fields" style="display:none">
       <div class="field-row">

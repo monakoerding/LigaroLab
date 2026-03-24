@@ -2,15 +2,17 @@
 const FIELDS = {
   personen:    { Kuerzel:'Title', Vorname:'field_1', Nachname:'field_2' },
   projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'field_1' },
-  lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2' },
+  lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2', Anwendung:'field_3' },
   experimente: {
     Experiment_ID:'Title', Parent_ID:'field_1', Projekt_Kuerzel:'field_2',
     Datum:'field_3', Person_Kuerzel:'field_4', Projekttitel:'field_5',
     Beschreibung:'field_6', Beobachtungen:'field_7', Kommentar:'field_8',
+    Presse:'Presse', Pressdruck:'Pressdruck', Presstemperatur:'Presstemperatur', Presszeit:'Presszeit',
   },
   material: {
     Experiment_ID:'Title', Laenge_mm:'field_1', Breite_mm:'field_2',
     Lagerfolge_ID:'field_3', Kraft_N:'field_4', Holzbruch_pct:'field_5', Kommentar:'field_6',
+    Maschine:'Maschine',
   },
   komponenten: {
     Experiment_ID:'Title', Quelle_Typ:'field_1', Chemikalie_Name:'field_2',
@@ -26,6 +28,14 @@ const FIELDS = {
     Experiment_ID:'Title', Probe:'field_1', Leergewicht_g:'field_2',
     Einwaage_g:'field_3', Endgewicht_g:'field_4', Kommentar:'field_5',
   },
+  lagerfolgen_schritte: {
+    Lagerfolge_ID:'Title', Schritt_Nr:'field_1', Behandlung:'field_2', Medium:'field_3',
+    Temperatur_C:'field_4', RH_pct:'field_5', Dauer_h:'field_6', Kommentar:'field_7',
+  },
+  maschinen: {
+    Name:'Title', Hersteller:'field_1', Typ:'field_2', Maschinen_ID:'field_3',
+    Kuerzel:'field_4', Kommentar:'field_5',
+  },
 };
 function mapFrom(items,fm){return items.map(item=>{const o={_spId:item.Id};for(const[k,v]of Object.entries(fm))o[k]=item[v]??null;return o;});}
 function mapTo(obj,fm){const o={};for(const[k,v]of Object.entries(fm)){if(k in obj)o[v]=obj[k];}return o;}
@@ -34,7 +44,7 @@ function mapTo(obj,fm){const o={};for(const[k,v]of Object.entries(fm)){if(k in o
 const msalConfig={auth:{clientId:'9c5f89c5-d994-4b6e-9215-5f5cd4c09753',authority:'https://login.microsoftonline.com/08a7f19b-4557-486a-8f49-71dcef345176',redirectUri:window.location.origin+window.location.pathname.replace(/index\.html$/,'')},cache:{cacheLocation:'sessionStorage'}};
 const SP='https://oucvbj.sharepoint.com/sites/FirmaLeibnizUniversittHannoverITE-LIGARO';
 const SP_SCOPE='https://oucvbj.sharepoint.com/AllSites.Write';
-const LIST={experimente:'Experimente',material:'Materialpruefung',lagerfolgen:'Lagerfolgen',personen:'Personen',projekte:'Projektkuerzel',komponenten:'Komponenten',chemikalien:'Chemikalienbestand',feststoffgehalt:'Feststoffgehalt'};
+const LIST={experimente:'Experimente',material:'Materialpruefung',lagerfolgen:'Lagerfolgen',personen:'Personen',projekte:'Projektkuerzel',komponenten:'Komponenten',chemikalien:'Chemikalienbestand',feststoffgehalt:'Feststoffgehalt',lagerfolgen_schritte:'Lagerfolgen_Schritte',maschinen:'Maschinen'};
 
 let msalApp;
 async function getMsal(){if(!msalApp){msalApp=new msal.PublicClientApplication(msalConfig);await msalApp.initialize();}return msalApp;}
@@ -44,7 +54,7 @@ function onLoggedIn(account){document.getElementById('login-screen').style.displ
 (async()=>{const app=await getMsal();const a=app.getAllAccounts();if(a.length)onLoggedIn(a[0]);})();
 
 // ─── State ────────────────────────────────────────────────────────────────
-let allExp=[],allMat=[],allChem=[],allKomps=[],allSC=[],personen=[],projekte=[],lagerfolgen=[];
+let allExp=[],allMat=[],allChem=[],allKomps=[],allSC=[],allLafoSchritte=[],allMaschinen=[],personen=[],projekte=[],lagerfolgen=[];
 let entityTypes={},digestVal=null,digestExp=0;
 let selectedProj=new Set(),selectedPers=new Set(),selectedLafo=new Set(),selectedOrt=new Set();
 let selectedResProj=new Set(),selectedResPers=new Set(),selectedResLafo=new Set();
@@ -140,9 +150,11 @@ async function loadAll(){
       spGet(LIST.lagerfolgen,FIELDS.lagerfolgen),spGet(LIST.experimente,FIELDS.experimente),
       spGet(LIST.material,FIELDS.material),
     ]);
-    allChem  = await spGet(LIST.chemikalien,     FIELDS.chemikalien).catch(()=>[]);
-    allKomps = await spGet(LIST.komponenten,     FIELDS.komponenten).catch(()=>[]);
-    allSC    = await spGet(LIST.feststoffgehalt, FIELDS.feststoffgehalt).catch(()=>[]);
+    allChem        = await spGet(LIST.chemikalien,        FIELDS.chemikalien).catch(()=>[]);
+    allKomps       = await spGet(LIST.komponenten,        FIELDS.komponenten).catch(()=>[]);
+    allSC          = await spGet(LIST.feststoffgehalt,    FIELDS.feststoffgehalt).catch(()=>[]);
+    allLafoSchritte= await spGet(LIST.lagerfolgen_schritte, FIELDS.lagerfolgen_schritte).catch(()=>[]);
+    allMaschinen   = await spGet(LIST.maschinen,          FIELDS.maschinen).catch(()=>[]);
 
     allExp.sort((a,b)=>(b.Datum||'').localeCompare(a.Datum||''));
     computeMpaRanges();
@@ -160,12 +172,14 @@ async function loadAll(){
 
     updateSortHeaders('exp');updateSortHeaders('mat');updateSortHeaders('res');
     cachedErgebnisse=computeErgebnisse();
-    filterExp();filterMat();filterRes();filterChem();setStatus('');
+    filterExp();filterMat();filterRes();filterChem();filterLafo();filterMasch();setStatus('');
   }catch(e){
     setStatus('Fehler: '+e.message);console.error(e);
-    document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="6" class="state">${esc(e.message)}</td></tr>`;
-    document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="9" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="7" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="11" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('res-tbody').innerHTML=`<tr><td colspan="12" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('lafo-tbody').innerHTML=`<tr><td colspan="4" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('mach-tbody').innerHTML=`<tr><td colspan="5" class="state">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -186,6 +200,14 @@ function filterExp(){
     ?rows.map(e=>{
         const eid=esc(e.Experiment_ID);
         const text=esc(e[activeTextCol]||'');
+        const presseK=e.Presse||'';
+        const pd=e.Pressdruck!=null?e.Pressdruck:'';
+        const pt=e.Presstemperatur!=null?e.Presstemperatur:'';
+        const pz=e.Presszeit!=null?e.Presszeit:'';
+        const hasPress=presseK||pd!==''||pt!==''||pz!=='';
+        const paramShort=hasPress?[presseK,pd,pt,pz].filter(v=>v!=='').join(' '):'';
+        const mach=allMaschinen.find(m=>m.Kuerzel===presseK);
+        const paramTip=hasPress?[mach?`Presse: ${mach.Name}`:presseK?`Presse: ${presseK}`:'',pd!==''?`${pd} N/mm²`:'',pt!==''?`${pt} °C`:'',pz!==''?`${pz} min`:''].filter(Boolean).join(', '):'';
         return `<tr class="exp-row" id="erow-${eid}" onclick="toggleExpRow('${eid}')">
           <td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.Projekttitel)}</td>
@@ -198,6 +220,7 @@ function filterExp(){
               <div class="extra-label">Kommentar</div>${esc(e.Kommentar||'')}
             </div>
           </td>
+          <td style="white-space:nowrap;font-size:11px;color:#666;font-family:monospace" title="${esc(paramTip)}">${esc(paramShort)}</td>
           <td class="col-actions" onclick="event.stopPropagation()" style="width:88px">
             <button class="btn-icon" title="Bearbeiten" onclick="editExp('${eid}')">✏️</button>
             <button class="btn-icon" title="Duplizieren" onclick="dupExp('${eid}')">📋</button>
@@ -205,7 +228,7 @@ function filterExp(){
           </td>
         </tr>`;
       }).join('')
-    :'<tr><td colspan="6" class="state">Keine Einträge gefunden.</td></tr>';
+    :'<tr><td colspan="7" class="state">Keine Einträge gefunden.</td></tr>';
 }
 
 function toggleExpRow(expId){const row=document.getElementById('erow-'+expId);const tc=document.getElementById('tc-'+expId);const ef=document.getElementById('ef-'+expId);if(!row)return;const exp=!row.classList.contains('expanded');row.classList.toggle('expanded',exp);tc.classList.toggle('collapsed',!exp);tc.classList.toggle('expanded-text',exp);ef.classList.toggle('show',exp);}
@@ -243,13 +266,14 @@ function filterMat(){
           <td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td>
           <td style="text-align:right;font-size:12px">${hb}</td>
           <td style="white-space:nowrap;font-size:12px">${esc(m.Lagerfolge_ID)}</td>
+          <td style="white-space:nowrap;font-size:11px;color:#555;width:32px;text-align:center">${esc(m.Maschine)}</td>
           <td style="text-align:right;font-size:12px;white-space:nowrap">${lxb}</td>
           <td style="text-align:right;font-size:12px">${m.Kraft_N??''}</td>
           <td class="truncate" style="font-size:12px">${esc(m.Kommentar)}</td>
           <td class="col-actions"><button class="btn-icon" title="Bearbeiten" onclick="editMat(${m._spId})">✏️</button></td>
         </tr>`;
       }).join('')
-    :'<tr><td colspan="10" class="state">Keine Einträge gefunden.</td></tr>';
+    :'<tr><td colspan="11" class="state">Keine Einträge gefunden.</td></tr>';
 }
 
 // ─── Ergebnisse ───────────────────────────────────────────────────────────
@@ -411,6 +435,38 @@ function filterChem(){
 }
 function toggleChemRow(cid){const row=document.getElementById('crow-'+cid);const expRow=document.getElementById('chem-exp-'+cid);const chev=document.getElementById('chev-'+cid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);row.classList.toggle('expanded',open);if(chev)chev.textContent=open?'▼':'▶';}
 
+// ─── Lagerfolgen list ──────────────────────────────────────────────────────
+function filterLafo(){
+  const q=(document.getElementById('lafo-search')?.value||'').toLowerCase();
+  const rows=lagerfolgen.filter(l=>!q||`${l.Lagerfolge_ID} ${l.Name} ${l.Norm}`.toLowerCase().includes(q));
+  const el=document.getElementById('lafo-tbody');if(!el)return;
+  document.getElementById('lafo-count').textContent=rows.length+' Einträge';
+  el.innerHTML=rows.length
+    ?rows.map(l=>{
+        const lid=(l.Lagerfolge_ID||'').replace(/[^a-z0-9]/gi,'_');
+        const steps=[...allLafoSchritte.filter(s=>s.Lagerfolge_ID===l.Lagerfolge_ID)].sort((a,b)=>(parseInt(a.Schritt_Nr)||0)-(parseInt(b.Schritt_Nr)||0));
+        const hasSteps=steps.length>0;
+        const chevron=hasSteps?`<span style="font-size:10px;opacity:.5" id="lchev-${lid}">▶</span>`:'';
+        const stepsRow=hasSteps?`<tr class="chem-expand-row" id="lafo-exp-${lid}"><td colspan="4"><div class="chem-expand-inner"><table class="modal-table" style="font-size:12px"><thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th style="text-align:right">Temp. (°C)</th><th style="text-align:right">rH (%)</th><th style="text-align:right">Dauer (h)</th><th>Kommentar</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${esc(s.Schritt_Nr)}</td><td>${esc(s.Behandlung)}</td><td>${esc(s.Medium)}</td><td style="text-align:right">${esc(s.Temperatur_C)}</td><td style="text-align:right">${esc(s.RH_pct)}</td><td style="text-align:right">${esc(s.Dauer_h)}</td><td style="font-size:11px;color:#666">${esc(s.Kommentar)}</td></tr>`).join('')}</tbody></table></div></td></tr>`:'';
+        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td></tr>${stepsRow}`;
+      }).join('')
+    :'<tr><td colspan="4" class="state">Keine Lagerfolgen gefunden.</td></tr>';
+}
+function toggleLafoRow(lid){const expRow=document.getElementById('lafo-exp-'+lid);const chev=document.getElementById('lchev-'+lid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);if(chev)chev.textContent=open?'▼':'▶';}
+
+// ─── Maschinen list ────────────────────────────────────────────────────────
+function filterMasch(){
+  const q=(document.getElementById('mach-search')?.value||'').toLowerCase();
+  const rows=allMaschinen.filter(m=>!q||`${m.Kuerzel} ${m.Name} ${m.Hersteller} ${m.Typ}`.toLowerCase().includes(q));
+  const el=document.getElementById('mach-tbody');if(!el)return;
+  document.getElementById('mach-count').textContent=rows.length+' Maschinen';
+  el.innerHTML=rows.length
+    ?rows.map(m=>`<tr><td style="font-weight:700;white-space:nowrap;width:48px">${esc(m.Kuerzel)}</td><td>${esc(m.Name)}</td><td>${esc(m.Hersteller)}</td><td style="font-size:12px;color:#555">${esc(m.Typ)}</td><td style="font-size:12px;color:#888">${esc(m.Kommentar)}</td></tr>`).join('')
+    :allMaschinen.length===0
+      ?'<tr><td colspan="5" class="state">Maschinen-Liste noch nicht in SharePoint vorhanden.<br><small style="color:#aaa">Bitte Maschinen.csv in SharePoint importieren (Liste: Maschinen).</small></td></tr>'
+      :'<tr><td colspan="5" class="state">Keine Einträge gefunden.</td></tr>';
+}
+
 // ─── Detail modal ──────────────────────────────────────────────────────────
 async function openDetail(event,expId){
   event.stopPropagation();
@@ -546,6 +602,7 @@ function initExpForm(item){
   document.getElementById('f-exp-id').disabled=!!item;
   fillSelectProj();
   fillSelectPers();
+  fillSelectPresse();
   document.getElementById('new-proj-fields').style.display='none';
   document.getElementById('new-pers-fields').style.display='none';
   if(item){
@@ -558,10 +615,15 @@ function initExpForm(item){
     document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
     document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
     document.getElementById('f-exp-komm').value=item.Kommentar||'';
+    document.getElementById('f-exp-presse').value=item.Presse||'';
+    document.getElementById('f-exp-pressdruck').value=item.Pressdruck??'';
+    document.getElementById('f-exp-presstemperatur').value=item.Presstemperatur??'';
+    document.getElementById('f-exp-presszeit').value=item.Presszeit??'';
     document.getElementById('f-exp-id-hint').textContent='';
   } else {
     document.getElementById('f-exp-datum').value=new Date().toISOString().slice(0,10);
     ['f-exp-id','f-exp-parent','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
+    ['f-exp-pressdruck','f-exp-presstemperatur','f-exp-presszeit'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-exp-id-hint').textContent='';
   }
 }
@@ -583,6 +645,10 @@ function dupExp(expId){
   document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
   document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
   document.getElementById('f-exp-komm').value=item.Kommentar||'';
+  document.getElementById('f-exp-presse').value=item.Presse||'';
+  document.getElementById('f-exp-pressdruck').value=item.Pressdruck??'';
+  document.getElementById('f-exp-presstemperatur').value=item.Presstemperatur??'';
+  document.getElementById('f-exp-presszeit').value=item.Presszeit??'';
 }
 function fillSelectPers(){
   const sel=document.getElementById('f-exp-person');
@@ -602,6 +668,13 @@ function fillSelectProj(){
   sel.innerHTML='<option value="">– wählen –</option>';
   projekte.forEach(p=>{const o=document.createElement('option');o.value=p.Projekt_Kuerzel;o.textContent=`${p.Projekt_Kuerzel} – ${p.Beschreibung||''}`;sel.appendChild(o);});
   const newOpt=document.createElement('option');newOpt.value='__new__';newOpt.textContent='+ Neues Projekt anlegen…';newOpt.style.fontWeight='600';newOpt.style.color='#1e3a5f';sel.appendChild(newOpt);
+  if(cur)sel.value=cur;
+}
+function fillSelectPresse(){
+  const sel=document.getElementById('f-exp-presse');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">– keine –</option>';
+  allMaschinen.filter(m=>m.Typ==='Heizpresse').forEach(m=>{const o=document.createElement('option');o.value=m.Kuerzel;o.textContent=`${m.Kuerzel} – ${m.Name}`;sel.appendChild(o);});
   if(cur)sel.value=cur;
 }
 function onProjSelect(){
@@ -652,10 +725,13 @@ async function saveExperiment(){
       personen.sort((a,b)=>a.Kuerzel.localeCompare(b.Kuerzel));
     }
     // 2. Experiment speichern
-    const int={Experiment_ID:id,Parent_ID:document.getElementById('f-exp-parent').value.trim()||'',Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim()};
+    const pdVal=document.getElementById('f-exp-pressdruck').value;
+    const ptVal=document.getElementById('f-exp-presstemperatur').value;
+    const pzVal=document.getElementById('f-exp-presszeit').value;
+    const int={Experiment_ID:id,Parent_ID:document.getElementById('f-exp-parent').value.trim()||'',Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim(),Presse:document.getElementById('f-exp-presse').value||null,Pressdruck:pdVal!==''?parseFloat(pdVal):null,Presstemperatur:ptVal!==''?parseFloat(ptVal):null,Presszeit:pzVal!==''?parseFloat(pzVal):null};
     const sp=mapTo(int,FIELDS.experimente);
     if(editingExp){await spPatch(LIST.experimente,editingExp._spId,sp);Object.assign(editingExp,int);}
-    else{await spPost(LIST.experimente,sp);allExp.unshift({...int});}
+    else{const saved=await spPost(LIST.experimente,sp);allExp.unshift({...int,_spId:saved.d.Id});}
     cachedErgebnisse=computeErgebnisse();filterExp();filterRes();
     alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
   }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
@@ -677,17 +753,20 @@ function initMatForm(item){
   document.getElementById('mat-multi-fields').style.display=item?'none':'';
   document.getElementById('mat-single-fields').style.display=item?'':'none';
   fillSelect('f-mat-lafo',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`);
+  const mSel=document.getElementById('f-mat-maschine');mSel.innerHTML='<option value="">– keine –</option>';
+  allMaschinen.filter(m=>m.Typ==='Zugprüfmaschine').forEach(m=>{const o=document.createElement('option');o.value=m.Kuerzel;o.textContent=`${m.Kuerzel} – ${m.Name}`;mSel.appendChild(o);});
   const dl=document.getElementById('mat-expid-list');dl.innerHTML='';
   allExp.forEach(e=>{const o=document.createElement('option');o.value=e.Experiment_ID;dl.appendChild(o);});
   if(item){
     document.getElementById('f-mat-expid').value=item.Experiment_ID||'';
     document.getElementById('f-mat-lafo').value=item.Lagerfolge_ID||'';
+    document.getElementById('f-mat-maschine').value=item.Maschine||'';
     document.getElementById('f-mat-l').value=item.Laenge_mm??'';
     document.getElementById('f-mat-b').value=item.Breite_mm??'';
     document.getElementById('f-mat-f').value=item.Kraft_N??'';
     document.getElementById('f-mat-h').value=item.Holzbruch_pct??'';
     document.getElementById('f-mat-k').value=item.Kommentar||'';
-  } else {document.getElementById('f-mat-expid').value='';document.getElementById('spec-tbody').innerHTML='';specIdx=0;addSpecRow();addSpecRow();addSpecRow();}
+  } else {document.getElementById('f-mat-expid').value='';document.getElementById('f-mat-maschine').value='';document.getElementById('spec-tbody').innerHTML='';specIdx=0;addSpecRow();addSpecRow();addSpecRow();}
 }
 function editMat(spId){const item=allMat.find(m=>m._spId===spId);if(!item)return;editingMat=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-mat').classList.add('open');activePanel='mat';initMatForm(item);}
 function addSpecRow(){const i=specIdx++;const tr=document.createElement('tr');tr.id='spec-row-'+i;tr.innerHTML=`<td><input type="number" id="sl-${i}" value="10" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sb-${i}" value="20" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sf-${i}" min="0" step="1" oninput="recalcMpa(${i})"></td><td class="mpa-cell" id="sm-${i}">–</td><td><input type="number" id="sh-${i}" min="0" max="1" step="0.01" placeholder="0–1"></td><td><input type="text" id="sk-${i}"></td><td><button class="del-btn" onclick="removeSpecRow(${i})">×</button></td>`;document.getElementById('spec-tbody').appendChild(tr);}
@@ -703,7 +782,7 @@ async function saveMaterial(){
     if(editingMat){
       const fVal=document.getElementById('f-mat-f').value,hVal=document.getElementById('f-mat-h').value;
       if(!fVal||hVal===''){alertEl.innerHTML='<div class="alert alert-err">Kraft und Holzbruch sind Pflichtfelder.</div>';btn.disabled=false;return;}
-      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(fVal),Holzbruch_pct:parseFloat(hVal),Kommentar:document.getElementById('f-mat-k').value||''};
+      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Maschine:document.getElementById('f-mat-maschine').value||null,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(fVal),Holzbruch_pct:parseFloat(hVal),Kommentar:document.getElementById('f-mat-k').value||''};
       await spPatch(LIST.material,editingMat._spId,mapTo(int,FIELDS.material));Object.assign(editingMat,int);
     } else {
       const rows=[];
