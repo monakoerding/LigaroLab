@@ -380,10 +380,8 @@ function filterChem(){
         const cid=(c.Chemikalie_Name||'').replace(/[^a-z0-9]/gi,'_')+c._spId;
         const spId=c._spId;
         const usedIn=[...new Set(allKomps.filter(k=>k.Chemikalie_Name===c.Chemikalie_Name).map(k=>k.Experiment_ID).filter(Boolean))];
-        const hasExpand=usedIn.length||!!c.IUPAC;
-        const expandContent=(c.IUPAC?`<div style="margin-bottom:6px"><span class="extra-label">IUPAC-Name</span><div style="font-size:12px;color:#333;font-style:italic">${esc(c.IUPAC)}</div></div>`:'')+
-          (usedIn.length?`<span class="extra-label">Verwendet in ${usedIn.length} Experiment(en)</span><div class="chem-exp-list">${usedIn.map(id=>`<span class="badge" onclick="openDetail(event,'${esc(id)}')">${esc(id)}</span>`).join('')}</div>`:'');
-        const expandRow=hasExpand?`<tr class="chem-expand-row" id="chem-exp-${cid}"><td colspan="11"><div class="chem-expand-inner">${expandContent}</div></td></tr>`:'';
+        const hasExpand=usedIn.length>0;
+        const expandRow=hasExpand?`<tr class="chem-expand-row" id="chem-exp-${cid}"><td colspan="11"><div class="chem-expand-inner"><span class="extra-label">Verwendet in ${usedIn.length} Experiment(en)</span><div class="chem-exp-list">${usedIn.map(id=>`<span class="badge" onclick="openDetail(event,'${esc(id)}')">${esc(id)}</span>`).join('')}</div></div></td></tr>`:'';
         const chevron=hasExpand?`<span style="font-size:10px;opacity:.5" id="chev-${cid}">▶</span>`:'';
         const flChip=fuellstandChip(c.Fuellstand);
         return `<tr class="chem-row" onclick="${hasExpand?`toggleChemRow('${cid}')`:''}" id="crow-${cid}">
