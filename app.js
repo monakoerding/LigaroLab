@@ -20,7 +20,7 @@ const FIELDS = {
   chemikalien: {
     Chemikalie_Name:'Title', IUPAC:'field_1', Formel:'field_2',
     Hersteller:'field_3', Menge:'field_4', Einheit:'field_5',
-    Ort:'field_6', Herkunft:'field_7', Kommentar:'field_8',
+    Ort:'field_6', Herkunft:'field_7', Kommentar:'field_8', Fuellstand:'field_9',
   },
   feststoffgehalt: {
     Experiment_ID:'Title', Probe:'field_1', Leergewicht_g:'field_2',
@@ -54,7 +54,7 @@ let editingExp=null,editingMat=null,editingChem=null,editingSC=null;
 // Sort state: col + dir (1=asc, -1=desc)
 let sortState={
   exp:{col:'Datum',dir:-1},
-  mat:{col:'Experiment_ID',dir:1},
+  mat:{col:'_datum',dir:-1},
   res:{col:'Datum',dir:-1},
 };
 
@@ -74,7 +74,7 @@ async function spDelete(listName,spId){const token=await getToken();const digest
 
 // ─── MPa color ────────────────────────────────────────────────────────────
 function computeMpaRanges(){mpaRanges={};allMat.forEach(m=>{const v=parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N));if(isNaN(v))return;const id=m.Lagerfolge_ID||'';if(!mpaRanges[id])mpaRanges[id]={min:v,max:v};mpaRanges[id].min=Math.min(mpaRanges[id].min,v);mpaRanges[id].max=Math.max(mpaRanges[id].max,v);});}
-function mpaStyle(mpa,lafoId){const r=mpaRanges[lafoId];if(!r||r.max===r.min)return'';const pct=(parseFloat(mpa)-r.min)/(r.max-r.min);if((lafoId||'').toUpperCase().includes('WET')){const h=Math.round(215+pct*60);const s=Math.round(15+pct*55);return`background:hsl(${h},${s}%,78%);`;}else{return`background:hsl(${Math.round(pct*120)},65%,82%);`;}}
+function mpaStyle(mpa,lafoId){const r=mpaRanges[lafoId];if(!r||r.max===r.min)return'';const pct=(parseFloat(mpa)-r.min)/(r.max-r.min);if((lafoId||'').toUpperCase().includes('WET')){return`background:hsl(280,${Math.round(pct*65)}%,${Math.round(88-pct*8)}%);`;}else{return`background:hsl(120,${Math.round(pct*65)}%,${Math.round(88-pct*6)}%);`;}}
 
 // ─── Sort helpers ─────────────────────────────────────────────────────────
 function setSort(pane,col){
@@ -219,8 +219,8 @@ function filterMat(){
       (!df||datum>=df)&&(!dt||datum<=dt)&&
       (!q||((m.Experiment_ID||'').toLowerCase().includes(q)||titel.includes(q)));
   });
-  // Add computed _mpa for sorting
-  rows=rows.map(m=>({...m,_mpa:parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N))||0}));
+  // Add computed fields for sorting
+  rows=rows.map(m=>{const exp=allExp.find(e=>e.Experiment_ID===m.Experiment_ID);return{...m,_mpa:parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N))||0,_datum:exp?.Datum||''};});
   rows=applySort(rows,'mat',['_mpa']);
   document.getElementById('mat-count').textContent=rows.length+' Einträge';
   document.getElementById('mat-tbody').innerHTML=rows.length
@@ -235,6 +235,7 @@ function filterMat(){
         return `<tr>
           <td style="white-space:nowrap"><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
           <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#555">${titel}</td>
+          <td style="white-space:nowrap;font-size:12px;color:#666">${fmtDate(m._datum)}</td>
           <td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td>
           <td style="text-align:right;font-size:12px">${hb}</td>
           <td style="white-space:nowrap;font-size:12px">${esc(m.Lagerfolge_ID)}</td>
@@ -244,7 +245,7 @@ function filterMat(){
           <td class="col-actions"><button class="btn-icon" title="Bearbeiten" onclick="editMat(${m._spId})">✏️</button></td>
         </tr>`;
       }).join('')
-    :'<tr><td colspan="9" class="state">Keine Einträge gefunden.</td></tr>';
+    :'<tr><td colspan="10" class="state">Keine Einträge gefunden.</td></tr>';
 }
 
 // ─── Ergebnisse ───────────────────────────────────────────────────────────
@@ -355,6 +356,18 @@ function exportExcel(){
 }
 
 // ─── Chemicals list ────────────────────────────────────────────────────────
+const FUELLSTAND_CFG={
+  voll:        {color:'#22c55e',bg:'#dcfce7',label:'Voll'},
+  mittel:      {color:'#ca8a04',bg:'#fef9c3',label:'Mittel'},
+  fast_leer:   {color:'#ea580c',bg:'#ffedd5',label:'Fast leer'},
+  nachbestellen:{color:'#dc2626',bg:'#fee2e2',label:'Nachbestellen'},
+};
+function fuellstandChip(val){
+  if(!val)return'';
+  const cfg=FUELLSTAND_CFG[val];
+  if(!cfg)return esc(val);
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${cfg.bg};color:${cfg.color}">${cfg.label}</span>`;
+}
 function filterChem(){
   const q=document.getElementById('chem-search').value.toLowerCase();
   const rows=allChem.filter(c=>
@@ -367,15 +380,20 @@ function filterChem(){
         const cid=(c.Chemikalie_Name||'').replace(/[^a-z0-9]/gi,'_')+c._spId;
         const spId=c._spId;
         const usedIn=[...new Set(allKomps.filter(k=>k.Chemikalie_Name===c.Chemikalie_Name).map(k=>k.Experiment_ID).filter(Boolean))];
-        const expandRow=usedIn.length?`<tr class="chem-expand-row" id="chem-exp-${cid}"><td colspan="10"><div class="chem-expand-inner"><span class="extra-label">Verwendet in ${usedIn.length} Experiment(en)</span><div class="chem-exp-list">${usedIn.map(id=>`<span class="badge" onclick="openDetail(event,'${esc(id)}')">${esc(id)}</span>`).join('')}</div></div></td></tr>`:'';
-        const chevron=usedIn.length?`<span style="font-size:10px;opacity:.5" id="chev-${cid}">▶</span>`:'';
-        return `<tr class="chem-row" onclick="${usedIn.length?`toggleChemRow('${cid}')`:''}" id="crow-${cid}">
+        const hasExpand=usedIn.length||!!c.IUPAC;
+        const expandContent=(c.IUPAC?`<div style="margin-bottom:6px"><span class="extra-label">IUPAC-Name</span><div style="font-size:12px;color:#333;font-style:italic">${esc(c.IUPAC)}</div></div>`:'')+
+          (usedIn.length?`<span class="extra-label">Verwendet in ${usedIn.length} Experiment(en)</span><div class="chem-exp-list">${usedIn.map(id=>`<span class="badge" onclick="openDetail(event,'${esc(id)}')">${esc(id)}</span>`).join('')}</div>`:'');
+        const expandRow=hasExpand?`<tr class="chem-expand-row" id="chem-exp-${cid}"><td colspan="11"><div class="chem-expand-inner">${expandContent}</div></td></tr>`:'';
+        const chevron=hasExpand?`<span style="font-size:10px;opacity:.5" id="chev-${cid}">▶</span>`:'';
+        const flChip=fuellstandChip(c.Fuellstand);
+        return `<tr class="chem-row" onclick="${hasExpand?`toggleChemRow('${cid}')`:''}" id="crow-${cid}">
           <td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td>
-          <td><strong>${esc(c.Chemikalie_Name)}</strong></td>
+          <td><strong title="${esc(c.IUPAC||'')}">${esc(c.Chemikalie_Name)}</strong></td>
           <td style="font-family:monospace;font-size:12px">${esc(c.Formel)}</td>
           <td>${esc(c.Hersteller)}</td>
           <td style="text-align:right">${esc(c.Menge)}</td>
           <td>${esc(c.Einheit)}</td>
+          <td style="text-align:center">${flChip}</td>
           <td>${esc(c.Ort)}</td>
           <td>${esc(c.Herkunft)}</td>
           <td class="truncate">${esc(c.Kommentar)}</td>
@@ -383,8 +401,8 @@ function filterChem(){
         </tr>${expandRow}`;
       }).join('')
     :allChem.length===0
-      ?'<tr><td colspan="10" class="state">Chemikalien-Liste noch nicht in SharePoint vorhanden.</td></tr>'
-      :'<tr><td colspan="10" class="state">Keine Einträge gefunden.</td></tr>';
+      ?'<tr><td colspan="11" class="state">Chemikalien-Liste noch nicht in SharePoint vorhanden.</td></tr>'
+      :'<tr><td colspan="11" class="state">Keine Einträge gefunden.</td></tr>';
 }
 function toggleChemRow(cid){const row=document.getElementById('crow-'+cid);const expRow=document.getElementById('chem-exp-'+cid);const chev=document.getElementById('chev-'+cid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);row.classList.toggle('expanded',open);if(chev)chev.textContent=open?'▼':'▶';}
 
@@ -542,6 +560,8 @@ function initMatForm(item){
   document.getElementById('mat-multi-fields').style.display=item?'none':'';
   document.getElementById('mat-single-fields').style.display=item?'':'none';
   fillSelect('f-mat-lafo',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`);
+  const dl=document.getElementById('mat-expid-list');dl.innerHTML='';
+  allExp.forEach(e=>{const o=document.createElement('option');o.value=e.Experiment_ID;dl.appendChild(o);});
   if(item){
     document.getElementById('f-mat-expid').value=item.Experiment_ID||'';
     document.getElementById('f-mat-lafo').value=item.Lagerfolge_ID||'';
@@ -560,14 +580,17 @@ async function saveMaterial(){
   const alertEl=document.getElementById('mat-alert'),btn=document.getElementById('btn-save-mat');
   const expId=document.getElementById('f-mat-expid').value.trim().toUpperCase(),lafo=document.getElementById('f-mat-lafo').value;
   if(!expId||!lafo){alertEl.innerHTML='<div class="alert alert-err">Experiment-ID und Protokoll sind Pflichtfelder.</div>';return;}
+  if(!allExp.find(e=>e.Experiment_ID===expId)){alertEl.innerHTML=`<div class="alert alert-err">Experiment-ID „${esc(expId)}" nicht gefunden.</div>`;return;}
   btn.disabled=true;alertEl.innerHTML='';
   try{
     if(editingMat){
-      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(document.getElementById('f-mat-f').value)||null,Holzbruch_pct:document.getElementById('f-mat-h').value!==''?parseFloat(document.getElementById('f-mat-h').value):null,Kommentar:document.getElementById('f-mat-k').value||''};
+      const fVal=document.getElementById('f-mat-f').value,hVal=document.getElementById('f-mat-h').value;
+      if(!fVal||hVal===''){alertEl.innerHTML='<div class="alert alert-err">Kraft und Holzbruch sind Pflichtfelder.</div>';btn.disabled=false;return;}
+      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(fVal),Holzbruch_pct:parseFloat(hVal),Kommentar:document.getElementById('f-mat-k').value||''};
       await spPatch(LIST.material,editingMat._spId,mapTo(int,FIELDS.material));Object.assign(editingMat,int);
     } else {
       const rows=[];
-      document.querySelectorAll('#spec-tbody tr').forEach(tr=>{const i=tr.id.replace('spec-row-','');const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value;const h=document.getElementById('sh-'+i)?.value,k=document.getElementById('sk-'+i)?.value;if(l&&b&&f){const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(l),Breite_mm:parseFloat(b),Kraft_N:parseFloat(f),Holzbruch_pct:h!==''?parseFloat(h):null,Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.material)});}});
+      document.querySelectorAll('#spec-tbody tr').forEach(tr=>{const i=tr.id.replace('spec-row-','');const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value;const h=document.getElementById('sh-'+i)?.value,k=document.getElementById('sk-'+i)?.value;if(l&&b&&f&&h!==''){const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(l),Breite_mm:parseFloat(b),Kraft_N:parseFloat(f),Holzbruch_pct:parseFloat(h),Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.material)});}});
       if(!rows.length){alertEl.innerHTML='<div class="alert alert-err">Keine gültigen Probekörper.</div>';btn.disabled=false;return;}
       btn.textContent=`Speichert ${rows.length}…`;
       const saved=await Promise.all(rows.map(r=>spPost(LIST.material,r.sp)));
@@ -649,6 +672,8 @@ function initChemForm(item){
   document.getElementById('pubchem-status').textContent='';document.getElementById('pubchem-status').className='pubchem-status';
   const dl=document.getElementById('hersteller-list');dl.innerHTML='';
   [...new Set(allChem.map(c=>c.Hersteller).filter(Boolean))].sort().forEach(h=>{const o=document.createElement('option');o.value=h;dl.appendChild(o);});
+  const ortDl=document.getElementById('ort-list');ortDl.innerHTML='';
+  [...new Set(allChem.map(c=>c.Ort).filter(Boolean))].sort().forEach(v=>{const o=document.createElement('option');o.value=v;ortDl.appendChild(o);});
   if(item){
     document.getElementById('f-chem-name').value=item.Chemikalie_Name||'';
     document.getElementById('f-chem-formel').value=item.Formel||'';
@@ -658,10 +683,13 @@ function initChemForm(item){
     document.getElementById('f-chem-einheit').value=item.Einheit||'';
     document.getElementById('f-chem-ort').value=item.Ort||'';
     document.getElementById('f-chem-herkunft').value=item.Herkunft||'';
+    document.getElementById('f-chem-fuellstand').value=item.Fuellstand||'';
     document.getElementById('f-chem-komm').value=item.Kommentar||'';
   } else {
-    ['f-chem-name','f-chem-formel','f-chem-iupac','f-chem-hersteller','f-chem-einheit','f-chem-ort','f-chem-herkunft','f-chem-komm'].forEach(id=>document.getElementById(id).value='');
+    ['f-chem-name','f-chem-formel','f-chem-iupac','f-chem-hersteller','f-chem-einheit','f-chem-ort','f-chem-komm'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-chem-menge').value='';
+    document.getElementById('f-chem-herkunft').value='Gekauft';
+    document.getElementById('f-chem-fuellstand').value='';
   }
 }
 function editChem(spId){const item=allChem.find(c=>c._spId===spId);if(!item)return;editingChem=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-chem').classList.add('open');activePanel='chem';initChemForm(item);}
@@ -675,11 +703,11 @@ async function saveChem(){
   const name=document.getElementById('f-chem-name').value.trim();
   if(!name){alertEl.innerHTML='<div class="alert alert-err">Name ist ein Pflichtfeld.</div>';return;}
   btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
-  const int={Chemikalie_Name:name,IUPAC:document.getElementById('f-chem-iupac').value.trim(),Formel:document.getElementById('f-chem-formel').value.trim(),Hersteller:document.getElementById('f-chem-hersteller').value.trim(),Menge:document.getElementById('f-chem-menge').value!==''?parseFloat(document.getElementById('f-chem-menge').value):null,Einheit:document.getElementById('f-chem-einheit').value.trim(),Ort:document.getElementById('f-chem-ort').value.trim(),Herkunft:document.getElementById('f-chem-herkunft').value.trim(),Kommentar:document.getElementById('f-chem-komm').value.trim()};
+  const int={Chemikalie_Name:name,IUPAC:document.getElementById('f-chem-iupac').value.trim(),Formel:document.getElementById('f-chem-formel').value.trim(),Hersteller:document.getElementById('f-chem-hersteller').value.trim(),Menge:document.getElementById('f-chem-menge').value!==''?parseFloat(document.getElementById('f-chem-menge').value):null,Einheit:document.getElementById('f-chem-einheit').value.trim(),Ort:document.getElementById('f-chem-ort').value.trim(),Herkunft:document.getElementById('f-chem-herkunft').value.trim(),Fuellstand:document.getElementById('f-chem-fuellstand').value||null,Kommentar:document.getElementById('f-chem-komm').value.trim()};
   try{
     const sp=mapTo(int,FIELDS.chemikalien);
     if(editingChem){await spPatch(LIST.chemikalien,editingChem._spId,sp);Object.assign(editingChem,int);}
-    else{const saved=await spPost(LIST.chemikalien,sp);allChem.push({...int,_spId:saved.d.Id});}
+    else{const saved=await spPost(LIST.chemikalien,sp);allChem.push({...int,_spId:saved.d.Id});allChem.sort((a,b)=>(a.Chemikalie_Name||'').localeCompare(b.Chemikalie_Name||''));}
     filterChem();alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
   }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
   finally{btn.disabled=false;btn.textContent='Speichern';}
