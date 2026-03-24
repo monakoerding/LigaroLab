@@ -20,7 +20,7 @@ const FIELDS = {
   chemikalien: {
     Chemikalie_Name:'Title', IUPAC:'field_1', Formel:'field_2',
     Hersteller:'field_3', Menge:'field_4', Einheit:'field_5',
-    Ort:'field_6', Herkunft:'field_7', Kommentar:'field_8', Fuellstand:'field_9',
+    Ort:'field_6', Herkunft:'field_7', Kommentar:'field_8', Fuellstand:'F_x00fc_llstand',
   },
   feststoffgehalt: {
     Experiment_ID:'Title', Probe:'field_1', Leergewicht_g:'field_2',
