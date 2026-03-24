@@ -4,7 +4,7 @@ const FIELDS = {
   projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'field_1' },
   lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2', Anwendung:'field_3' },
   experimente: {
-    Experiment_ID:'Title', Parent_ID:'field_1', Projekt_Kuerzel:'field_2',
+    Experiment_ID:'Title', Projekt_Kuerzel:'field_2',
     Datum:'field_3', Person_Kuerzel:'field_4', Projekttitel:'field_5',
     Beschreibung:'field_6', Beobachtungen:'field_7', Kommentar:'field_8',
     Presse:'Presse', Pressdruck:'Pressdruck', Presstemperatur:'Presstemperatur', Presszeit:'Presszeit',
@@ -764,7 +764,6 @@ function initExpForm(item){
     document.getElementById('f-exp-proj').value=item.Projekt_Kuerzel||'';
     document.getElementById('f-exp-datum').value=fmtDate(item.Datum)||'';
     document.getElementById('f-exp-person').value=item.Person_Kuerzel||'';
-    document.getElementById('f-exp-parent').value=item.Parent_ID||'';
     document.getElementById('f-exp-titel').value=item.Projekttitel||'';
     document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
     document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
@@ -778,7 +777,7 @@ function initExpForm(item){
     allKomps.filter(k=>k.Experiment_ID===item.Experiment_ID).forEach(k=>addKompRow(k));
   } else {
     document.getElementById('f-exp-datum').value=new Date().toISOString().slice(0,10);
-    ['f-exp-id','f-exp-parent','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
+    ['f-exp-id','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-exp-presse').value='P1';
     document.getElementById('f-exp-pressdruck').value='0.7';
     document.getElementById('f-exp-presstemperatur').value='140';
@@ -799,7 +798,6 @@ function dupExp(expId){
   document.getElementById('f-exp-id-hint').textContent=`Dupliziert von ${item.Experiment_ID}`;
   document.getElementById('f-exp-proj').value=item.Projekt_Kuerzel||'';
   document.getElementById('f-exp-person').value=item.Person_Kuerzel||'';
-  document.getElementById('f-exp-parent').value=item.Parent_ID||'';
   document.getElementById('f-exp-titel').value=item.Projekttitel||'';
   document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
   document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
@@ -887,7 +885,7 @@ async function saveExperiment(){
     const pdVal=document.getElementById('f-exp-pressdruck').value;
     const ptVal=document.getElementById('f-exp-presstemperatur').value;
     const pzVal=document.getElementById('f-exp-presszeit').value;
-    const int={Experiment_ID:id,Parent_ID:document.getElementById('f-exp-parent').value.trim()||'',Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim(),Presse:document.getElementById('f-exp-presse').value||null,Pressdruck:pdVal!==''?parseFloat(pdVal):null,Presstemperatur:ptVal!==''?parseFloat(ptVal):null,Presszeit:pzVal!==''?parseFloat(pzVal):null};
+    const int={Experiment_ID:id,Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim(),Presse:document.getElementById('f-exp-presse').value||null,Pressdruck:pdVal!==''?parseFloat(pdVal):null,Presstemperatur:ptVal!==''?parseFloat(ptVal):null,Presszeit:pzVal!==''?parseFloat(pzVal):null};
     const sp=mapTo(int,FIELDS.experimente);
     if(editingExp){await spPatch(LIST.experimente,editingExp._spId,sp);Object.assign(editingExp,int);}
     else{const saved=await spPost(LIST.experimente,sp);allExp.unshift({...int,_spId:saved.d.Id});}
