@@ -171,6 +171,7 @@
     <div class="toolbar">
       <input type="search" id="lafo-search" placeholder="Suche nach ID, Name, Norm…" oninput="filterLafo()">
       <span class="row-count" id="lafo-count"></span>
+      <button class="btn btn-primary" onclick="openPanel('lafo')">+ Neue Lagerfolge</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -179,8 +180,9 @@
           <th>ID</th>
           <th>Name</th>
           <th>Norm</th>
+          <th></th>
         </tr></thead>
-        <tbody id="lafo-tbody"><tr><td colspan="4" class="state">Lade…</td></tr></tbody>
+        <tbody id="lafo-tbody"><tr><td colspan="5" class="state">Lade…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -190,6 +192,7 @@
     <div class="toolbar">
       <input type="search" id="mach-search" placeholder="Suche nach Kürzel, Name, Typ…" oninput="filterMasch()">
       <span class="row-count" id="mach-count"></span>
+      <button class="btn btn-primary" onclick="openPanel('mach')">+ Neue Maschine</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -199,8 +202,9 @@
           <th>Hersteller</th>
           <th>Typ</th>
           <th>Kommentar</th>
+          <th></th>
         </tr></thead>
-        <tbody id="mach-tbody"><tr><td colspan="5" class="state">Lade…</td></tr></tbody>
+        <tbody id="mach-tbody"><tr><td colspan="6" class="state">Lade…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -268,6 +272,17 @@
     <div class="field"><label>Beschreibung</label><textarea id="f-exp-beschreibung"></textarea></div>
     <div class="field"><label>Beobachtungen</label><textarea id="f-exp-beob"></textarea></div>
     <div class="field"><label>Kommentar</label><textarea id="f-exp-komm" style="min-height:52px"></textarea></div>
+    <div class="field">
+      <label>Komponenten</label>
+      <datalist id="komp-chem-list"></datalist>
+      <div class="spec-wrap">
+        <table class="spec-table">
+          <thead><tr><th>Name</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th><th></th></tr></thead>
+          <tbody id="komp-tbody"></tbody>
+        </table>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:9px" onclick="addKompRow()">+ Komponente</button>
+    </div>
   </div>
   <div class="panel-foot">
     <button class="btn btn-danger btn-sm" id="btn-del-exp" onclick="deleteExp()" style="margin-right:auto;display:none">Löschen</button>
@@ -421,6 +436,64 @@
     <button class="btn btn-danger btn-sm" id="btn-del-chem" onclick="deleteChem()" style="margin-right:auto;display:none">Löschen</button>
     <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
     <button class="btn btn-primary" id="btn-save-chem" onclick="saveChem()">Speichern</button>
+  </div>
+</div>
+
+<!-- PANEL: Lagerfolge -->
+<div class="panel" id="panel-lafo">
+  <div class="panel-head"><h2 id="panel-lafo-title">Neue Lagerfolge</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="lafo-alert"></div>
+    <div class="field-row">
+      <div class="field"><label>Lagerfolge-ID <span class="req">*</span></label><input type="text" id="f-lafo-id" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="field"><label>Norm</label><input type="text" id="f-lafo-norm"></div>
+    </div>
+    <div class="field"><label>Name <span class="req">*</span></label><input type="text" id="f-lafo-name"></div>
+    <div class="field"><label>Beschreibung / Anwendung</label><textarea id="f-lafo-anwendung" style="min-height:52px"></textarea></div>
+    <div class="field">
+      <label>Lagerungsschritte</label>
+      <div class="spec-wrap">
+        <table class="spec-table">
+          <thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th>Temp. (°C)</th><th>rH (%)</th><th>Dauer (h)</th><th>Kommentar</th><th></th></tr></thead>
+          <tbody id="lafo-schritt-tbody"></tbody>
+        </table>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:9px" onclick="addLafoSchritt()">+ Schritt</button>
+    </div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-danger btn-sm" id="btn-del-lafo" onclick="deleteLafo()" style="margin-right:auto;display:none">Löschen</button>
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" id="btn-save-lafo" onclick="saveLafo()">Speichern</button>
+  </div>
+</div>
+
+<!-- PANEL: Maschine -->
+<div class="panel" id="panel-mach">
+  <div class="panel-head"><h2 id="panel-mach-title">Neue Maschine</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="mach-alert"></div>
+    <div class="field-row">
+      <div class="field"><label>Name <span class="req">*</span></label><input type="text" id="f-mach-name"></div>
+      <div class="field"><label>Kürzel <span class="req">*</span></label><input type="text" id="f-mach-kuerzel" oninput="this.value=this.value.toUpperCase().replace(/\s/g,'')"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Hersteller</label><input type="text" id="f-mach-hersteller"></div>
+      <div class="field"><label>Typ</label>
+        <select id="f-mach-typ">
+          <option value="">– wählen –</option>
+          <option value="Heizpresse">Heizpresse</option>
+          <option value="Zugprüfmaschine">Zugprüfmaschine</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Kommentar</label><textarea id="f-mach-komm" style="min-height:52px"></textarea></div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-danger btn-sm" id="btn-del-mach" onclick="deleteMach()" style="margin-right:auto;display:none">Löschen</button>
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" id="btn-save-mach" onclick="saveMach()">Speichern</button>
   </div>
 </div>
 

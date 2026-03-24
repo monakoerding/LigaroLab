@@ -43,6 +43,7 @@ function mapTo(obj,fm){const o={};for(const[k,v]of Object.entries(fm)){if(k in o
 // ─── MSAL ─────────────────────────────────────────────────────────────────
 const msalConfig={auth:{clientId:'9c5f89c5-d994-4b6e-9215-5f5cd4c09753',authority:'https://login.microsoftonline.com/08a7f19b-4557-486a-8f49-71dcef345176',redirectUri:window.location.origin+window.location.pathname.replace(/index\.html$/,'')},cache:{cacheLocation:'sessionStorage'}};
 const SP='https://oucvbj.sharepoint.com/sites/FirmaLeibnizUniversittHannoverITE-LIGARO';
+const SP_HOST='https://oucvbj.sharepoint.com';
 const SP_SCOPE='https://oucvbj.sharepoint.com/AllSites.Write';
 const LIST={experimente:'Experimente',material:'Materialpruefung',lagerfolgen:'Lagerfolgen',personen:'Personen',projekte:'Projektkuerzel',komponenten:'Komponenten',chemikalien:'Chemikalienbestand',feststoffgehalt:'Feststoffgehalt',lagerfolgen_schritte:'Lagerfolgen_Schritte',maschinen:'Maschinen'};
 
@@ -60,7 +61,9 @@ let selectedProj=new Set(),selectedPers=new Set(),selectedLafo=new Set(),selecte
 let selectedResProj=new Set(),selectedResPers=new Set(),selectedResLafo=new Set();
 let mpaRanges={};
 let activeTextCol='Beschreibung';
-let editingExp=null,editingMat=null,editingChem=null,editingSC=null;
+let editingExp=null,editingMat=null,editingChem=null,editingSC=null,editingLafo=null,editingMach=null;
+let lafoSchrittIdx=0,deletedLafoSchritte=[];
+let kompIdx=0,deletedKomps=[];
 // Sort state: col + dir (1=asc, -1=desc)
 let sortState={
   exp:{col:'Datum',dir:-1},
@@ -178,8 +181,8 @@ async function loadAll(){
     document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="7" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="11" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('res-tbody').innerHTML=`<tr><td colspan="12" class="state">${esc(e.message)}</td></tr>`;
-    document.getElementById('lafo-tbody').innerHTML=`<tr><td colspan="4" class="state">${esc(e.message)}</td></tr>`;
-    document.getElementById('mach-tbody').innerHTML=`<tr><td colspan="5" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('lafo-tbody').innerHTML=`<tr><td colspan="5" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('mach-tbody').innerHTML=`<tr><td colspan="6" class="state">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -447,10 +450,10 @@ function filterLafo(){
         const steps=[...allLafoSchritte.filter(s=>s.Lagerfolge_ID===l.Lagerfolge_ID)].sort((a,b)=>(parseInt(a.Schritt_Nr)||0)-(parseInt(b.Schritt_Nr)||0));
         const hasSteps=steps.length>0;
         const chevron=hasSteps?`<span style="font-size:10px;opacity:.5" id="lchev-${lid}">▶</span>`:'';
-        const stepsRow=hasSteps?`<tr class="chem-expand-row" id="lafo-exp-${lid}"><td colspan="4"><div class="chem-expand-inner"><table class="modal-table" style="font-size:12px"><thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th style="text-align:right">Temp. (°C)</th><th style="text-align:right">rH (%)</th><th style="text-align:right">Dauer (h)</th><th>Kommentar</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${esc(s.Schritt_Nr)}</td><td>${esc(s.Behandlung)}</td><td>${esc(s.Medium)}</td><td style="text-align:right">${esc(s.Temperatur_C)}</td><td style="text-align:right">${esc(s.RH_pct)}</td><td style="text-align:right">${esc(s.Dauer_h)}</td><td style="font-size:11px;color:#666">${esc(s.Kommentar)}</td></tr>`).join('')}</tbody></table></div></td></tr>`:'';
-        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td></tr>${stepsRow}`;
+        const stepsRow=hasSteps?`<tr class="chem-expand-row" id="lafo-exp-${lid}"><td colspan="5"><div class="chem-expand-inner"><table class="modal-table" style="font-size:12px"><thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th style="text-align:right">Temp. (°C)</th><th style="text-align:right">rH (%)</th><th style="text-align:right">Dauer (h)</th><th>Kommentar</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${esc(s.Schritt_Nr)}</td><td>${esc(s.Behandlung)}</td><td>${esc(s.Medium)}</td><td style="text-align:right">${esc(s.Temperatur_C)}</td><td style="text-align:right">${esc(s.RH_pct)}</td><td style="text-align:right">${esc(s.Dauer_h)}</td><td style="font-size:11px;color:#666">${esc(s.Kommentar)}</td></tr>`).join('')}</tbody></table></div></td></tr>`:'';
+        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td><td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editLafo('${esc(l.Lagerfolge_ID)}')">✏️</button></td></tr>${stepsRow}`;
       }).join('')
-    :'<tr><td colspan="4" class="state">Keine Lagerfolgen gefunden.</td></tr>';
+    :'<tr><td colspan="5" class="state">Keine Lagerfolgen gefunden.</td></tr>';
 }
 function toggleLafoRow(lid){const expRow=document.getElementById('lafo-exp-'+lid);const chev=document.getElementById('lchev-'+lid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);if(chev)chev.textContent=open?'▼':'▶';}
 
@@ -461,10 +464,138 @@ function filterMasch(){
   const el=document.getElementById('mach-tbody');if(!el)return;
   document.getElementById('mach-count').textContent=rows.length+' Maschinen';
   el.innerHTML=rows.length
-    ?rows.map(m=>`<tr><td style="font-weight:700;white-space:nowrap;width:48px">${esc(m.Kuerzel)}</td><td>${esc(m.Name)}</td><td>${esc(m.Hersteller)}</td><td style="font-size:12px;color:#555">${esc(m.Typ)}</td><td style="font-size:12px;color:#888">${esc(m.Kommentar)}</td></tr>`).join('')
+    ?rows.map(m=>`<tr><td style="font-weight:700;white-space:nowrap;width:48px">${esc(m.Kuerzel)}</td><td>${esc(m.Name)}</td><td>${esc(m.Hersteller)}</td><td style="font-size:12px;color:#555">${esc(m.Typ)}</td><td style="font-size:12px;color:#888">${esc(m.Kommentar)}</td><td class="col-actions"><button class="btn-icon" title="Bearbeiten" onclick="editMach(${m._spId})">✏️</button></td></tr>`).join('')
     :allMaschinen.length===0
-      ?'<tr><td colspan="5" class="state">Maschinen-Liste noch nicht in SharePoint vorhanden.<br><small style="color:#aaa">Bitte Maschinen.csv in SharePoint importieren (Liste: Maschinen).</small></td></tr>'
-      :'<tr><td colspan="5" class="state">Keine Einträge gefunden.</td></tr>';
+      ?'<tr><td colspan="6" class="state">Maschinen-Liste noch nicht in SharePoint vorhanden.</td></tr>'
+      :'<tr><td colspan="6" class="state">Keine Einträge gefunden.</td></tr>';
+}
+
+// ─── Lagerfolge form ───────────────────────────────────────────────────────
+function initLafoForm(item){
+  document.getElementById('lafo-alert').innerHTML='';
+  document.getElementById('panel-lafo-title').textContent=item?'Lagerfolge bearbeiten':'Neue Lagerfolge';
+  document.getElementById('btn-del-lafo').style.display=item?'':'none';
+  document.getElementById('f-lafo-id').disabled=!!item;
+  deletedLafoSchritte=[];
+  document.getElementById('lafo-schritt-tbody').innerHTML='';
+  lafoSchrittIdx=0;
+  if(item){
+    document.getElementById('f-lafo-id').value=item.Lagerfolge_ID||'';
+    document.getElementById('f-lafo-name').value=item.Name||'';
+    document.getElementById('f-lafo-norm').value=item.Norm||'';
+    document.getElementById('f-lafo-anwendung').value=item.Anwendung||'';
+    const steps=[...allLafoSchritte.filter(s=>s.Lagerfolge_ID===item.Lagerfolge_ID)].sort((a,b)=>(parseInt(a.Schritt_Nr)||0)-(parseInt(b.Schritt_Nr)||0));
+    steps.forEach(s=>addLafoSchritt(s));
+  } else {
+    ['f-lafo-id','f-lafo-name','f-lafo-norm','f-lafo-anwendung'].forEach(id=>document.getElementById(id).value='');
+    addLafoSchritt();
+  }
+}
+function editLafo(lafoId){
+  const item=lagerfolgen.find(l=>l.Lagerfolge_ID===lafoId);if(!item)return;
+  editingLafo=item;
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('panel-lafo').classList.add('open');
+  activePanel='lafo';initLafoForm(item);
+}
+function addLafoSchritt(item){
+  const i=lafoSchrittIdx++;
+  const tr=document.createElement('tr');
+  tr.id='lafo-sr-'+i;
+  if(item?._spId)tr.dataset.spid=String(item._spId);
+  const spIdArg=item?._spId?','+item._spId:'';
+  tr.innerHTML=`<td><input type="number" id="lsn-${i}" value="${item?.Schritt_Nr||i+1}" min="1" step="1" style="width:44px"></td><td><input type="text" id="lsb-${i}" value="${esc(item?.Behandlung||'')}" style="width:110px"></td><td><input type="text" id="lsm-${i}" value="${esc(item?.Medium||'')}" style="width:70px"></td><td><input type="number" id="lst-${i}" value="${item?.Temperatur_C??''}" step="0.1" style="width:54px"></td><td><input type="number" id="lsr-${i}" value="${item?.RH_pct??''}" step="1" style="width:54px"></td><td><input type="number" id="lsd-${i}" value="${item?.Dauer_h??''}" step="0.5" style="width:54px"></td><td><input type="text" id="lsk-${i}" value="${esc(item?.Kommentar||'')}" style="width:130px"></td><td><button class="del-btn" onclick="removeLafoSchritt(${i}${spIdArg})">×</button></td>`;
+  document.getElementById('lafo-schritt-tbody').appendChild(tr);
+}
+function removeLafoSchritt(i,spId){document.getElementById('lafo-sr-'+i)?.remove();if(spId)deletedLafoSchritte.push(spId);}
+async function saveLafo(){
+  const alertEl=document.getElementById('lafo-alert'),btn=document.getElementById('btn-save-lafo');
+  const id=document.getElementById('f-lafo-id').value.trim();
+  const name=document.getElementById('f-lafo-name').value.trim();
+  if(!id||!name){alertEl.innerHTML='<div class="alert alert-err">ID und Name sind Pflichtfelder.</div>';return;}
+  if(!editingLafo&&lagerfolgen.some(l=>l.Lagerfolge_ID===id)){alertEl.innerHTML=`<div class="alert alert-err">ID „${id}" existiert bereits.</div>`;return;}
+  btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
+  try{
+    const int={Lagerfolge_ID:id,Name:name,Norm:document.getElementById('f-lafo-norm').value.trim(),Anwendung:document.getElementById('f-lafo-anwendung').value.trim()};
+    const sp=mapTo(int,FIELDS.lagerfolgen);
+    if(editingLafo){await spPatch(LIST.lagerfolgen,editingLafo._spId,sp);Object.assign(editingLafo,int);}
+    else{const saved=await spPost(LIST.lagerfolgen,sp);lagerfolgen.push({...int,_spId:saved.d.Id});lagerfolgen.sort((a,b)=>a.Lagerfolge_ID.localeCompare(b.Lagerfolge_ID));}
+    // Delete removed steps
+    await Promise.all(deletedLafoSchritte.map(sid=>spDelete(LIST.lagerfolgen_schritte,sid)));
+    allLafoSchritte=allLafoSchritte.filter(s=>!deletedLafoSchritte.includes(s._spId));
+    deletedLafoSchritte=[];
+    // Save / update steps
+    const schrittRows=[];
+    document.querySelectorAll('#lafo-schritt-tbody tr').forEach(tr=>{
+      const i=tr.id.replace('lafo-sr-','');
+      const spId=tr.dataset.spid?parseInt(tr.dataset.spid):null;
+      const s={Lagerfolge_ID:id,Schritt_Nr:document.getElementById('lsn-'+i)?.value||'',Behandlung:document.getElementById('lsb-'+i)?.value.trim()||'',Medium:document.getElementById('lsm-'+i)?.value.trim()||'',Temperatur_C:document.getElementById('lst-'+i)?.value||null,RH_pct:document.getElementById('lsr-'+i)?.value||null,Dauer_h:document.getElementById('lsd-'+i)?.value||null,Kommentar:document.getElementById('lsk-'+i)?.value.trim()||''};
+      schrittRows.push({int:s,sp:mapTo(s,FIELDS.lagerfolgen_schritte),spId});
+    });
+    for(const r of schrittRows){
+      if(r.spId){await spPatch(LIST.lagerfolgen_schritte,r.spId,r.sp);const ex=allLafoSchritte.find(s=>s._spId===r.spId);if(ex)Object.assign(ex,r.int);}
+      else{const saved=await spPost(LIST.lagerfolgen_schritte,r.sp);allLafoSchritte.push({...r.int,_spId:saved.d.Id});}
+    }
+    buildMs('ms-lafo-panel',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`,selectedLafo,'onLafoChange');
+    fillSelect('f-mat-lafo',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`);
+    buildMs('ms-res-lafo-panel',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`,selectedResLafo,'onResLafoChange');
+    filterLafo();
+    alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent='Speichern';}
+}
+async function deleteLafo(){
+  if(!editingLafo||!confirm(`Lagerfolge „${editingLafo.Lagerfolge_ID}" wirklich löschen?`))return;
+  try{
+    const steps=allLafoSchritte.filter(s=>s.Lagerfolge_ID===editingLafo.Lagerfolge_ID);
+    await Promise.all(steps.map(s=>spDelete(LIST.lagerfolgen_schritte,s._spId)));
+    allLafoSchritte=allLafoSchritte.filter(s=>s.Lagerfolge_ID!==editingLafo.Lagerfolge_ID);
+    await spDelete(LIST.lagerfolgen,editingLafo._spId);
+    lagerfolgen=lagerfolgen.filter(l=>l._spId!==editingLafo._spId);
+    buildMs('ms-lafo-panel',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`,selectedLafo,'onLafoChange');
+    fillSelect('f-mat-lafo',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`);
+    buildMs('ms-res-lafo-panel',lagerfolgen,'Lagerfolge_ID',l=>`${l.Lagerfolge_ID} – ${l.Name}`,selectedResLafo,'onResLafoChange');
+    filterLafo();closePanel();
+  }catch(e){document.getElementById('lafo-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+}
+
+// ─── Maschine form ─────────────────────────────────────────────────────────
+function initMachForm(item){
+  document.getElementById('mach-alert').innerHTML='';
+  document.getElementById('panel-mach-title').textContent=item?'Maschine bearbeiten':'Neue Maschine';
+  document.getElementById('btn-del-mach').style.display=item?'':'none';
+  if(item){
+    document.getElementById('f-mach-name').value=item.Name||'';
+    document.getElementById('f-mach-hersteller').value=item.Hersteller||'';
+    document.getElementById('f-mach-typ').value=item.Typ||'';
+    document.getElementById('f-mach-kuerzel').value=item.Kuerzel||'';
+    document.getElementById('f-mach-komm').value=item.Kommentar||'';
+  } else {
+    ['f-mach-name','f-mach-hersteller','f-mach-kuerzel','f-mach-komm'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('f-mach-typ').value='';
+  }
+}
+function editMach(spId){const item=allMaschinen.find(m=>m._spId===spId);if(!item)return;editingMach=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-mach').classList.add('open');activePanel='mach';initMachForm(item);}
+async function saveMach(){
+  const alertEl=document.getElementById('mach-alert'),btn=document.getElementById('btn-save-mach');
+  const name=document.getElementById('f-mach-name').value.trim();
+  const kuerzel=document.getElementById('f-mach-kuerzel').value.trim();
+  if(!name||!kuerzel){alertEl.innerHTML='<div class="alert alert-err">Name und Kürzel sind Pflichtfelder.</div>';return;}
+  btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
+  const int={Name:name,Hersteller:document.getElementById('f-mach-hersteller').value.trim(),Typ:document.getElementById('f-mach-typ').value,Maschinen_ID:'',Kuerzel:kuerzel,Kommentar:document.getElementById('f-mach-komm').value.trim()};
+  try{
+    const sp=mapTo(int,FIELDS.maschinen);
+    if(editingMach){await spPatch(LIST.maschinen,editingMach._spId,sp);Object.assign(editingMach,int);}
+    else{const saved=await spPost(LIST.maschinen,sp);allMaschinen.push({...int,_spId:saved.d.Id});allMaschinen.sort((a,b)=>(a.Kuerzel||'').localeCompare(b.Kuerzel||''));}
+    filterMasch();
+    alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent='Speichern';}
+}
+async function deleteMach(){
+  if(!editingMach||!confirm(`Maschine „${editingMach.Name}" wirklich löschen?`))return;
+  try{await spDelete(LIST.maschinen,editingMach._spId);allMaschinen=allMaschinen.filter(m=>m._spId!==editingMach._spId);filterMasch();closePanel();}
+  catch(e){document.getElementById('mach-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
 }
 
 // ─── Detail modal ──────────────────────────────────────────────────────────
@@ -516,7 +647,7 @@ function renderAttachmentList(attachments,listName,itemId){
     const url=esc(a.ServerRelativeUrl);
     return`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f2f5">
       <span style="font-size:16px">${fileIcon(a.FileName)}</span>
-      <a href="${SP}${url}" target="_blank" style="font-size:13px;flex:1;color:#1e3a5f;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</a>
+      <a href="${SP_HOST}${url}" target="_blank" style="font-size:13px;flex:1;color:#1e3a5f;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</a>
       <button class="btn-icon" title="Löschen" onclick="deleteAttachment('${listName}',${itemId},'${name}',this)">🗑️</button>
     </div>`;
   }).join('')+'</div>';
@@ -563,7 +694,7 @@ async function openSDS(spId,chemName){
   document.getElementById('sds-list').innerHTML=attachments.length
     ?attachments.map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f2f5">
         <span>${fileIcon(a.FileName)}</span>
-        <a href="${SP}${esc(a.ServerRelativeUrl)}" target="_blank" style="flex:1;font-size:13px;color:#1e3a5f">${esc(a.FileName)}</a>
+        <a href="${SP_HOST}${esc(a.ServerRelativeUrl)}" target="_blank" style="flex:1;font-size:13px;color:#1e3a5f">${esc(a.FileName)}</a>
         <button class="btn-icon" onclick="deleteAttachment('${LIST.chemikalien}',${spId},'${esc(a.FileName)}',this);this.closest('[id=sds-list]').querySelector('a')?.click()">🗑️</button>
       </div>`).join('')
     :'<p class="modal-empty">Noch keine Anhänge.</p>';
@@ -581,7 +712,7 @@ async function uploadSDS(){
     const attachments=await spGetAttachments(LIST.chemikalien,spId);
     document.getElementById('sds-list').innerHTML=attachments.map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f2f5">
       <span>${fileIcon(a.FileName)}</span>
-      <a href="${SP}${esc(a.ServerRelativeUrl)}" target="_blank" style="flex:1;font-size:13px;color:#1e3a5f">${esc(a.FileName)}</a>
+      <a href="${SP_HOST}${esc(a.ServerRelativeUrl)}" target="_blank" style="flex:1;font-size:13px;color:#1e3a5f">${esc(a.FileName)}</a>
       <button class="btn-icon" onclick="deleteAttachment('${LIST.chemikalien}',${spId},'${esc(a.FileName)}',this)">🗑️</button>
     </div>`).join('');
     input.value='';
@@ -589,10 +720,24 @@ async function uploadSDS(){
   finally{btn.disabled=false;btn.textContent='Hochladen';}
 }
 
+// ─── Komponenten (in Experiment-Formular) ─────────────────────────────────
+function addKompRow(item){
+  const i=kompIdx++;
+  const tr=document.createElement('tr');
+  tr.id='komp-row-'+i;
+  if(item?._spId)tr.dataset.spid=String(item._spId);
+  const spIdArg=item?._spId?','+item._spId:'';
+  const nameVal=esc(item?.Chemikalie_Name||item?.Komponente_Name||'');
+  tr.innerHTML=`<td><input type="text" id="kn-${i}" value="${nameVal}" list="komp-chem-list" autocomplete="off" oninput="onKompNameInput(${i},this.value)" style="width:140px"></td><td><input type="text" id="kh-${i}" value="${esc(item?.Hersteller||'')}" style="width:100px"></td><td><input type="number" id="km-${i}" value="${item?.Menge??''}" min="0" step="any" style="width:60px"></td><td><input type="text" id="ke-${i}" value="${esc(item?.Einheit||'')}" style="width:50px"></td><td><input type="text" id="kr-${i}" value="${esc(item?.Rolle||'')}" style="width:80px"></td><td><button class="del-btn" onclick="removeKompRow(${i}${spIdArg})">×</button></td>`;
+  document.getElementById('komp-tbody').appendChild(tr);
+}
+function removeKompRow(i,spId){document.getElementById('komp-row-'+i)?.remove();if(spId)deletedKomps.push(spId);}
+function onKompNameInput(i,val){const chem=allChem.find(c=>c.Chemikalie_Name===val);if(chem){const hEl=document.getElementById('kh-'+i);if(hEl&&!hEl.value)hEl.value=chem.Hersteller||'';}}
+
 // ─── Panels ───────────────────────────────────────────────────────────────
 let activePanel=null;
-function openPanel(type){document.getElementById('overlay').classList.add('open');document.getElementById('panel-'+type).classList.add('open');activePanel=type;if(type==='exp'){editingExp=null;initExpForm();}else if(type==='mat'){editingMat=null;initMatForm();}else if(type==='chem'){editingChem=null;initChemForm();}else if(type==='sc'){editingSC=null;initSCForm(null);}}
-function closePanel(){document.getElementById('overlay').classList.remove('open');if(activePanel){document.getElementById('panel-'+activePanel).classList.remove('open');activePanel=null;}editingExp=null;editingMat=null;editingChem=null;editingSC=null;}
+function openPanel(type){document.getElementById('overlay').classList.add('open');document.getElementById('panel-'+type).classList.add('open');activePanel=type;if(type==='exp'){editingExp=null;initExpForm();}else if(type==='mat'){editingMat=null;initMatForm();}else if(type==='chem'){editingChem=null;initChemForm();}else if(type==='sc'){editingSC=null;initSCForm(null);}else if(type==='lafo'){editingLafo=null;initLafoForm();}else if(type==='mach'){editingMach=null;initMachForm();}}
+function closePanel(){document.getElementById('overlay').classList.remove('open');if(activePanel){document.getElementById('panel-'+activePanel).classList.remove('open');activePanel=null;}editingExp=null;editingMat=null;editingChem=null;editingSC=null;editingLafo=null;editingMach=null;}
 
 // ─── Experiment form ───────────────────────────────────────────────────────
 function initExpForm(item){
@@ -605,6 +750,12 @@ function initExpForm(item){
   fillSelectPresse();
   document.getElementById('new-proj-fields').style.display='none';
   document.getElementById('new-pers-fields').style.display='none';
+  // Refresh chemical datalist for komponenten
+  const kompDl=document.getElementById('komp-chem-list');
+  if(kompDl){kompDl.innerHTML='';allChem.forEach(c=>{const o=document.createElement('option');o.value=c.Chemikalie_Name;kompDl.appendChild(o);});}
+  // Reset komponenten rows
+  deletedKomps=[];kompIdx=0;
+  const kompTbody=document.getElementById('komp-tbody');if(kompTbody)kompTbody.innerHTML='';
   if(item){
     document.getElementById('f-exp-id').value=item.Experiment_ID||'';
     document.getElementById('f-exp-proj').value=item.Projekt_Kuerzel||'';
@@ -620,6 +771,8 @@ function initExpForm(item){
     document.getElementById('f-exp-presstemperatur').value=item.Presstemperatur??'';
     document.getElementById('f-exp-presszeit').value=item.Presszeit??'';
     document.getElementById('f-exp-id-hint').textContent='';
+    // Load existing Komponenten
+    allKomps.filter(k=>k.Experiment_ID===item.Experiment_ID).forEach(k=>addKompRow(k));
   } else {
     document.getElementById('f-exp-datum').value=new Date().toISOString().slice(0,10);
     ['f-exp-id','f-exp-parent','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
@@ -732,6 +885,24 @@ async function saveExperiment(){
     const sp=mapTo(int,FIELDS.experimente);
     if(editingExp){await spPatch(LIST.experimente,editingExp._spId,sp);Object.assign(editingExp,int);}
     else{const saved=await spPost(LIST.experimente,sp);allExp.unshift({...int,_spId:saved.d.Id});}
+    // Handle Komponenten
+    await Promise.all(deletedKomps.map(sid=>spDelete(LIST.komponenten,sid)));
+    allKomps=allKomps.filter(k=>!deletedKomps.includes(k._spId));
+    deletedKomps=[];
+    const kompRows=[];
+    document.querySelectorAll('#komp-tbody tr').forEach(tr=>{
+      const i=tr.id.replace('komp-row-','');
+      const spId=tr.dataset.spid?parseInt(tr.dataset.spid):null;
+      const nameVal=(document.getElementById('kn-'+i)?.value||'').trim();
+      if(!nameVal)return;
+      const chem=allChem.find(c=>c.Chemikalie_Name===nameVal);
+      const kint={Experiment_ID:id,Quelle_Typ:chem?'Chemikalie':'Sonstiges',Chemikalie_Name:chem?nameVal:null,Komponente_Name:chem?null:nameVal,Experiment_Ref:null,Hersteller:(document.getElementById('kh-'+i)?.value||'').trim(),Menge:document.getElementById('km-'+i)?.value!==''?parseFloat(document.getElementById('km-'+i)?.value):null,Einheit:(document.getElementById('ke-'+i)?.value||'').trim(),Rolle:(document.getElementById('kr-'+i)?.value||'').trim()};
+      kompRows.push({int:kint,sp:mapTo(kint,FIELDS.komponenten),spId});
+    });
+    for(const r of kompRows){
+      if(r.spId){await spPatch(LIST.komponenten,r.spId,r.sp);const ex=allKomps.find(k=>k._spId===r.spId);if(ex)Object.assign(ex,r.int);}
+      else{const saved=await spPost(LIST.komponenten,r.sp);allKomps.push({...r.int,_spId:saved.d.Id});}
+    }
     cachedErgebnisse=computeErgebnisse();filterExp();filterRes();
     alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
   }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
