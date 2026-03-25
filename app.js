@@ -1,7 +1,7 @@
 // ─── Field mappings ────────────────────────────────────────────────────────
 const FIELDS = {
   personen:    { Kuerzel:'Title', Vorname:'field_1', Nachname:'field_2' },
-  projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'Beschreibung' },
+  projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'field_1' },
   lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2', Anwendung:'field_3' },
   experimente: {
     Experiment_ID:'Title', Projekt_Kuerzel:'field_2',
@@ -88,6 +88,12 @@ async function spDelete(listName,spId){const token=await getToken();const digest
 async function spGetAttachments(listName,itemId){const token=await getToken();const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${itemId})/AttachmentFiles`,{headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});if(!r.ok)return[];const d=await r.json();return d.d.results;}
 async function spAttach(listName,itemId,fileName,fileData){const token=await getToken();const digest=await getDigest(token);const r=await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(fileName)}')`,{method:'POST',headers:{Accept:'application/json;odata=verbose','X-RequestDigest':digest,Authorization:'Bearer '+token},body:fileData});if(!r.ok){const t=await r.text();let m=`HTTP ${r.status}`;try{m=JSON.parse(t).error?.message?.value||m;}catch{}throw new Error(m);}return r.json();}
 async function spDeleteAttachment(listName,itemId,fileName){const token=await getToken();const digest=await getDigest(token);await fetch(`${SP}/_api/web/lists/getbytitle('${enc(listName)}')/items(${itemId})/AttachmentFiles('${encodeURIComponent(fileName)}')`,{method:'POST',headers:{Accept:'application/json;odata=verbose','X-RequestDigest':digest,Authorization:'Bearer '+token,'X-HTTP-Method':'DELETE','IF-MATCH':'*'}});}
+
+// ─── Experiment status ────────────────────────────────────────────────────
+const EXP_STATUS_COLORS=['#2CD2A7','#FF9933','#424242'];
+const EXP_STATUS_LABELS=['geplant','heute','fertig'];
+function getExpStatus(id){return parseInt(localStorage.getItem('expStatus-'+id)||'0');}
+function cycleExpStatus(id,event){event.stopPropagation();const s=(getExpStatus(id)+1)%3;localStorage.setItem('expStatus-'+id,s);const btn=document.getElementById('sb-'+id);if(btn){btn.style.background=EXP_STATUS_COLORS[s];btn.title=EXP_STATUS_LABELS[s];}}
 
 // ─── MPa color ────────────────────────────────────────────────────────────
 function computeMpaRanges(){mpaRanges={};allMat.forEach(m=>{const v=parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N));if(isNaN(v))return;const id=m.Lagerfolge_ID||'';if(!mpaRanges[id])mpaRanges[id]={min:v,max:v};mpaRanges[id].min=Math.min(mpaRanges[id].min,v);mpaRanges[id].max=Math.max(mpaRanges[id].max,v);});}
@@ -186,7 +192,7 @@ async function loadAll(){
     filterExp();filterMat();filterRes();filterChem();filterLafo();filterMasch();filterProj();setStatus('');
   }catch(e){
     setStatus('Fehler: '+e.message);console.error(e);
-    document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="7" class="state">${esc(e.message)}</td></tr>`;
+    document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="8" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('mat-tbody').innerHTML=`<tr><td colspan="10" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('res-tbody').innerHTML=`<tr><td colspan="12" class="state">${esc(e.message)}</td></tr>`;
     document.getElementById('lafo-tbody').innerHTML=`<tr><td colspan="5" class="state">${esc(e.message)}</td></tr>`;
@@ -219,6 +225,7 @@ function filterExp(){
         const paramShort=hasPress?[presseK,pd,pt,pz].filter(v=>v!=='').join(' '):'';
         const mach=allMaschinen.find(m=>m.Kuerzel===presseK);
         const paramTip=hasPress?[mach?`Presse: ${mach.Name}`:presseK?`Presse: ${presseK}`:'',pd!==''?`${pd} N/mm²`:'',pt!==''?`${pt} °C`:'',pz!==''?`${pz} min`:''].filter(Boolean).join(', '):'';
+        const st=getExpStatus(e.Experiment_ID);
         return `<tr class="exp-row" id="erow-${eid}" onclick="toggleExpRow('${eid}')">
           <td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
           <td class="exp-titel-td" id="etit-${eid}" title="${esc(e.Projekttitel)}">${esc(e.Projekttitel)}</td>
@@ -226,6 +233,7 @@ function filterExp(){
           <td>${esc(e.Person_Kuerzel)}</td>
           <td class="text-cell collapsed" id="tc-${eid}">${text}</td>
           <td style="white-space:nowrap;font-size:11px;color:#666;font-family:monospace" title="${esc(paramTip)}">${esc(paramShort)}</td>
+          <td style="width:28px;text-align:center" onclick="event.stopPropagation()"><button id="sb-${eid}" class="status-btn" style="background:${EXP_STATUS_COLORS[st]}" title="${EXP_STATUS_LABELS[st]}" onclick="cycleExpStatus('${eid}',event)"></button></td>
           <td class="col-actions" onclick="event.stopPropagation()" style="width:88px">
             <button class="btn-icon" title="Bearbeiten" onclick="editExp('${eid}')">✏️</button>
             <button class="btn-icon" title="Duplizieren" onclick="dupExp('${eid}')">📋</button>
@@ -233,7 +241,7 @@ function filterExp(){
           </td>
         </tr>`;
       }).join('')
-    :'<tr><td colspan="7" class="state">Keine Einträge gefunden.</td></tr>';
+    :'<tr><td colspan="8" class="state">Keine Einträge gefunden.</td></tr>';
 }
 
 function toggleExpRow(expId){const row=document.getElementById('erow-'+expId);const tc=document.getElementById('tc-'+expId);if(!row)return;const exp=!row.classList.contains('expanded');row.classList.toggle('expanded',exp);if(tc){tc.classList.toggle('collapsed',!exp);tc.classList.toggle('expanded-text',exp);}}

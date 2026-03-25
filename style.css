@@ -35,6 +35,8 @@
     .btn-sm { padding:5px 10px; font-size:12px; }
     .btn-icon { background:none; border:none; cursor:pointer; padding:2px 5px; border-radius:4px; font-size:13px; line-height:1; opacity:.5; }
     .btn-icon:hover { opacity:1; background:#f0f0f0; }
+    .status-btn { width:13px; height:13px; border-radius:50%; border:none; cursor:pointer; padding:0; display:inline-block; vertical-align:middle; }
+    .status-btn:hover { opacity:.75; }
 
     .ms-wrap { position:relative; }
     .ms-btn { padding:7px 11px; border:1px solid #d0d5dd; border-radius:6px; background:white; cursor:pointer; font-size:13px; white-space:nowrap; display:flex; align-items:center; gap:5px; }
