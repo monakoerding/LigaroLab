@@ -61,7 +61,7 @@ let selectedProj=new Set(),selectedPers=new Set(),selectedLafo=new Set(),selecte
 let selectedResProj=new Set(),selectedResPers=new Set(),selectedResLafo=new Set();
 let mpaRanges={};
 let activeTextCol='Beschreibung';
-let editingExp=null,editingMat=null,editingChem=null,editingSC=null,editingLafo=null,editingMach=null;
+let editingExp=null,editingMat=null,editingChem=null,editingSC=null,editingLafo=null,editingMach=null,editingProj=null;
 let lafoSchrittIdx=0,deletedLafoSchritte=[];
 let kompIdx=0,deletedKomps=[];
 // Sort state: col + dir (1=asc, -1=desc)
@@ -183,7 +183,7 @@ async function loadAll(){
 
     updateSortHeaders('exp');updateSortHeaders('mat');updateSortHeaders('res');
     cachedErgebnisse=computeErgebnisse();
-    filterExp();filterMat();filterRes();filterChem();filterLafo();filterMasch();setStatus('');
+    filterExp();filterMat();filterRes();filterChem();filterLafo();filterMasch();filterProj();setStatus('');
   }catch(e){
     setStatus('Fehler: '+e.message);console.error(e);
     document.getElementById('exp-tbody').innerHTML=`<tr><td colspan="7" class="state">${esc(e.message)}</td></tr>`;
@@ -406,7 +406,7 @@ function filterChem(){
   const rows=allChem.filter(c=>
     (!selectedOrt.size||selectedOrt.has(c.Ort))&&
     (!q||`${c.Chemikalie_Name} ${c.Hersteller} ${c.Ort} ${c.IUPAC}`.toLowerCase().includes(q))
-  );
+  ).sort((a,b)=>(a.Chemikalie_Name||'').localeCompare(b.Chemikalie_Name||''));
   document.getElementById('chem-count').textContent=rows.length+' Einträge';
   document.getElementById('chem-tbody').innerHTML=rows.length
     ?rows.map(c=>{
@@ -470,6 +470,41 @@ function filterMasch(){
     :allMaschinen.length===0
       ?'<tr><td colspan="6" class="state">Maschinen-Liste noch nicht in SharePoint vorhanden.</td></tr>'
       :'<tr><td colspan="6" class="state">Keine Einträge gefunden.</td></tr>';
+}
+
+// ─── Projekte list ────────────────────────────────────────────────────────
+function filterProj(){
+  const q=(document.getElementById('proj-search')?.value||'').toLowerCase();
+  const rows=[...projekte].sort((a,b)=>a.Projekt_Kuerzel.localeCompare(b.Projekt_Kuerzel)).filter(p=>!q||`${p.Projekt_Kuerzel} ${p.Beschreibung}`.toLowerCase().includes(q));
+  const el=document.getElementById('proj-tbody');if(!el)return;
+  document.getElementById('proj-count').textContent=rows.length+' Projekte';
+  const expCounts={};allExp.forEach(e=>{const p=e.Projekt_Kuerzel;if(p)expCounts[p]=(expCounts[p]||0)+1;});
+  el.innerHTML=rows.length
+    ?rows.map(p=>`<tr><td style="font-weight:700;white-space:nowrap;width:80px">${esc(p.Projekt_Kuerzel)}</td><td>${esc(p.Beschreibung)}</td><td style="text-align:right;color:#888;font-size:12px">${expCounts[p.Projekt_Kuerzel]||0}</td><td class="col-actions"><button class="btn-icon" title="Bearbeiten" onclick="editProj('${esc(p.Projekt_Kuerzel)}')">✏️</button></td></tr>`).join('')
+    :'<tr><td colspan="4" class="state">Keine Projekte gefunden.</td></tr>';
+}
+function editProj(kuerzel){
+  const item=projekte.find(p=>p.Projekt_Kuerzel===kuerzel);if(!item)return;
+  editingProj=item;
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('panel-proj').classList.add('open');
+  activePanel='proj';
+  document.getElementById('f-proj-kuerzel').value=item.Projekt_Kuerzel;
+  document.getElementById('f-proj-beschreibung').value=item.Beschreibung||'';
+  document.getElementById('proj-alert').innerHTML='';
+}
+async function saveProj(){
+  if(!editingProj)return;
+  const beschreibung=document.getElementById('f-proj-beschreibung').value.trim();
+  const alertEl=document.getElementById('proj-alert');
+  try{
+    await spPatch(LIST.projekte,editingProj._spId,mapTo({Projekt_Kuerzel:editingProj.Projekt_Kuerzel,Beschreibung:beschreibung},FIELDS.projekte));
+    editingProj.Beschreibung=beschreibung;
+    buildMs('ms-proj-panel',projekte,'Projekt_Kuerzel',p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''),selectedProj,'onProjChange');
+    buildMs('ms-res-proj-panel',projekte,'Projekt_Kuerzel',p=>p.Projekt_Kuerzel+(p.Beschreibung?` – ${p.Beschreibung}`:''),selectedResProj,'onResProjChange');
+    filterProj();
+    alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
+  }catch(e){alertEl.innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
 }
 
 // ─── Lagerfolge form ───────────────────────────────────────────────────────
@@ -617,8 +652,13 @@ async function openDetail(event,expId){
     let html='';
     html+='<div class="modal-section"><h3>Zusammensetzung</h3>';
     if(kompsNote)html+=kompsNote;
-    else if(komps.length){html+='<table class="modal-table"><thead><tr><th>Komponente</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th></tr></thead><tbody>';komps.forEach(k=>{html+=`<tr><td>${esc(k.Chemikalie_Name||k.Experiment_Ref||k.Komponente_Name||'–')}</td><td>${esc(k.Hersteller)}</td><td style="text-align:right">${esc(k.Menge)}</td><td>${esc(k.Einheit)}</td><td>${esc(k.Rolle)}</td></tr>`;});html+='</tbody></table>';}
-    else html+='<p class="modal-empty">Keine Komponenten eingetragen.</p>';
+    else{
+      html+='<table class="modal-table"><thead><tr><th>Komponente</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th><th></th></tr></thead><tbody id="komp-detail-tbody">';
+      if(komps.length)komps.forEach(k=>{html+=dKompRow(k,expId);});
+      else html+=`<tr id="komp-empty-row"><td colspan="6" class="modal-empty">Keine Komponenten eingetragen.</td></tr>`;
+      html+='</tbody></table>';
+      html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dKompAdd('${esc(expId)}')">+ Komponente</button>`;
+    }
     html+='</div>';
     html+='<div class="modal-section"><h3>Materialprüfung</h3>';
     if(mats.length){html+='<table class="modal-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">Holzbruch %</th><th style="text-align:right">L × B</th><th style="text-align:right">Kraft (N)</th><th>Kommentar</th></tr></thead><tbody>';mats.forEach(m=>{const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm} × ${m.Breite_mm}`:'';html+=`<tr><td>${esc(m.Lagerfolge_ID)}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${lxb}</td><td style="text-align:right">${m.Kraft_N??''}</td><td>${esc(m.Kommentar)}</td></tr>`;});html+='</tbody></table>';}
@@ -641,6 +681,87 @@ async function openDetail(event,expId){
 }
 function closeDetail(e){if(e.target===document.getElementById('detail-overlay'))closeDetailDirect();}
 function closeDetailDirect(){document.getElementById('detail-overlay').classList.remove('open');}
+
+// ─── Detail modal: Komponenten bearbeiten ──────────────────────────────────
+function dKompRow(k,expId){
+  const name=esc(k.Chemikalie_Name||k.Experiment_Ref||k.Komponente_Name||'–');
+  return `<tr id="komp-row-${k._spId}" data-spid="${k._spId}" data-expid="${esc(expId)}" data-name="${name}" data-her="${esc(k.Hersteller||'')}" data-menge="${k.Menge!=null?k.Menge:''}" data-einheit="${esc(k.Einheit||'')}" data-rolle="${esc(k.Rolle||'')}">
+    <td>${name}</td><td>${esc(k.Hersteller)}</td><td style="text-align:right">${k.Menge!=null?k.Menge:''}</td><td>${esc(k.Einheit)}</td><td>${esc(k.Rolle)}</td>
+    <td style="white-space:nowrap"><button class="btn-icon" title="Bearbeiten" onclick="dKompEdit(${k._spId})">✏️</button><button class="btn-icon" title="Löschen" onclick="dKompDel(${k._spId})">🗑️</button></td></tr>`;
+}
+function dKompEditInputs(id,name,her,menge,einheit,rolle,expId){
+  return `<td><input type="text" id="kd-n-${id}" value="${name}" style="width:120px" list="komp-chem-list"></td>
+    <td><input type="text" id="kd-h-${id}" value="${her}" style="width:85px"></td>
+    <td><input type="number" id="kd-m-${id}" value="${menge}" style="width:55px"></td>
+    <td><input type="text" id="kd-e-${id}" value="${einheit}" style="width:55px"></td>
+    <td><input type="text" id="kd-r-${id}" value="${rolle}" style="width:75px"></td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-primary btn-sm" onclick="dKompSave(${id},'${expId}')">💾</button>
+      <button class="btn btn-secondary btn-sm" onclick="dKompCancel(${id})">✕</button></td>`;
+}
+function dKompEdit(spId){
+  const row=document.getElementById('komp-row-'+spId);if(!row)return;
+  row.innerHTML=dKompEditInputs(spId,row.dataset.name,row.dataset.her,row.dataset.menge,row.dataset.einheit,row.dataset.rolle,row.dataset.expid);
+}
+function dKompCancel(spId){
+  const row=document.getElementById('komp-row-'+spId);if(!row)return;
+  const d=row.dataset;
+  row.innerHTML=`<td>${d.name}</td><td>${d.her}</td><td style="text-align:right">${d.menge}</td><td>${d.einheit}</td><td>${d.rolle}</td><td style="white-space:nowrap"><button class="btn-icon" onclick="dKompEdit(${spId})">✏️</button><button class="btn-icon" onclick="dKompDel(${spId})">🗑️</button></td>`;
+}
+async function dKompSave(spId,expId){
+  const nameVal=(document.getElementById('kd-n-'+spId)?.value||'').trim();if(!nameVal)return;
+  const chem=allChem.find(c=>c.Chemikalie_Name===nameVal);
+  const kint={Experiment_ID:expId,Quelle_Typ:chem?'Chemikalie':'Sonstiges',Chemikalie_Name:chem?nameVal:null,Komponente_Name:chem?null:nameVal,Experiment_Ref:null,Hersteller:(document.getElementById('kd-h-'+spId)?.value||'').trim(),Menge:document.getElementById('kd-m-'+spId)?.value!==''?parseFloat(document.getElementById('kd-m-'+spId)?.value):null,Einheit:(document.getElementById('kd-e-'+spId)?.value||'').trim(),Rolle:(document.getElementById('kd-r-'+spId)?.value||'').trim()};
+  try{
+    await spPatch(LIST.komponenten,spId,mapTo(kint,FIELDS.komponenten));
+    const cached=allKomps.find(k=>k._spId===spId);if(cached)Object.assign(cached,kint);
+    const row=document.getElementById('komp-row-'+spId);if(!row)return;
+    const name=esc(kint.Chemikalie_Name||kint.Komponente_Name||'');
+    row.dataset.name=name;row.dataset.her=esc(kint.Hersteller);row.dataset.menge=kint.Menge!=null?kint.Menge:'';row.dataset.einheit=esc(kint.Einheit);row.dataset.rolle=esc(kint.Rolle);
+    row.innerHTML=`<td>${name}</td><td>${esc(kint.Hersteller)}</td><td style="text-align:right">${kint.Menge!=null?kint.Menge:''}</td><td>${esc(kint.Einheit)}</td><td>${esc(kint.Rolle)}</td><td style="white-space:nowrap"><button class="btn-icon" onclick="dKompEdit(${spId})">✏️</button><button class="btn-icon" onclick="dKompDel(${spId})">🗑️</button></td>`;
+  }catch(e){alert('Fehler: '+e.message);}
+}
+async function dKompDel(spId){
+  if(!confirm('Komponente löschen?'))return;
+  try{
+    await spDelete(LIST.komponenten,spId);
+    allKomps=allKomps.filter(k=>k._spId!==spId);
+    document.getElementById('komp-row-'+spId)?.remove();
+    const tbody=document.getElementById('komp-detail-tbody');
+    if(tbody&&!tbody.querySelector('tr[id^="komp-row-"]'))tbody.innerHTML='<tr id="komp-empty-row"><td colspan="6" class="modal-empty">Keine Komponenten eingetragen.</td></tr>';
+  }catch(e){alert('Fehler: '+e.message);}
+}
+function dKompAdd(expId){
+  document.getElementById('komp-empty-row')?.remove();
+  const tbody=document.getElementById('komp-detail-tbody');if(!tbody)return;
+  const tid='new'+Date.now();
+  const tr=document.createElement('tr');tr.id='komp-row-'+tid;tr.dataset.expid=expId;
+  tr.innerHTML=`<td><input type="text" id="kd-n-${tid}" placeholder="Name/Chemikalie" style="width:120px" list="komp-chem-list"></td>
+    <td><input type="text" id="kd-h-${tid}" placeholder="Hersteller" style="width:85px"></td>
+    <td><input type="number" id="kd-m-${tid}" placeholder="Menge" style="width:55px"></td>
+    <td><input type="text" id="kd-e-${tid}" placeholder="Einheit" style="width:55px"></td>
+    <td><input type="text" id="kd-r-${tid}" placeholder="Rolle" style="width:75px"></td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-primary btn-sm" onclick="dKompCreate('${tid}','${esc(expId)}')">💾</button>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('komp-row-${tid}')?.remove()">✕</button></td>`;
+  tbody.appendChild(tr);
+  document.getElementById('kd-n-'+tid)?.focus();
+}
+async function dKompCreate(tid,expId){
+  const nameVal=(document.getElementById('kd-n-'+tid)?.value||'').trim();if(!nameVal)return;
+  const chem=allChem.find(c=>c.Chemikalie_Name===nameVal);
+  const kint={Experiment_ID:expId,Quelle_Typ:chem?'Chemikalie':'Sonstiges',Chemikalie_Name:chem?nameVal:null,Komponente_Name:chem?null:nameVal,Experiment_Ref:null,Hersteller:(document.getElementById('kd-h-'+tid)?.value||'').trim(),Menge:document.getElementById('kd-m-'+tid)?.value!==''?parseFloat(document.getElementById('kd-m-'+tid)?.value):null,Einheit:(document.getElementById('kd-e-'+tid)?.value||'').trim(),Rolle:(document.getElementById('kd-r-'+tid)?.value||'').trim()};
+  try{
+    const saved=await spPost(LIST.komponenten,mapTo(kint,FIELDS.komponenten));
+    const newSpId=saved.d.Id;
+    allKomps.push({...kint,_spId:newSpId});
+    const row=document.getElementById('komp-row-'+tid);if(!row)return;
+    row.id='komp-row-'+newSpId;row.dataset.spid=newSpId;
+    const name=esc(kint.Chemikalie_Name||kint.Komponente_Name||'');
+    row.dataset.name=name;row.dataset.her=esc(kint.Hersteller);row.dataset.menge=kint.Menge!=null?kint.Menge:'';row.dataset.einheit=esc(kint.Einheit);row.dataset.rolle=esc(kint.Rolle);
+    row.innerHTML=`<td>${name}</td><td>${esc(kint.Hersteller)}</td><td style="text-align:right">${kint.Menge!=null?kint.Menge:''}</td><td>${esc(kint.Einheit)}</td><td>${esc(kint.Rolle)}</td><td style="white-space:nowrap"><button class="btn-icon" onclick="dKompEdit(${newSpId})">✏️</button><button class="btn-icon" onclick="dKompDel(${newSpId})">🗑️</button></td>`;
+  }catch(e){alert('Fehler: '+e.message);}
+}
 
 // ─── Attachments ───────────────────────────────────────────────────────────
 function renderAttachmentList(attachments,listName,itemId){
@@ -740,7 +861,7 @@ function onKompNameInput(i,val){const chem=allChem.find(c=>c.Chemikalie_Name===v
 // ─── Panels ───────────────────────────────────────────────────────────────
 let activePanel=null;
 function openPanel(type){document.getElementById('overlay').classList.add('open');document.getElementById('panel-'+type).classList.add('open');activePanel=type;if(type==='exp'){editingExp=null;initExpForm();}else if(type==='mat'){editingMat=null;initMatForm();}else if(type==='chem'){editingChem=null;initChemForm();}else if(type==='sc'){editingSC=null;initSCForm(null);}else if(type==='lafo'){editingLafo=null;initLafoForm();}else if(type==='mach'){editingMach=null;initMachForm();}}
-function closePanel(){document.getElementById('overlay').classList.remove('open');if(activePanel){document.getElementById('panel-'+activePanel).classList.remove('open');activePanel=null;}editingExp=null;editingMat=null;editingChem=null;editingSC=null;editingLafo=null;editingMach=null;}
+function closePanel(){document.getElementById('overlay').classList.remove('open');if(activePanel){document.getElementById('panel-'+activePanel).classList.remove('open');activePanel=null;}editingExp=null;editingMat=null;editingChem=null;editingSC=null;editingLafo=null;editingMach=null;editingProj=null;}
 
 // ─── Experiment form ───────────────────────────────────────────────────────
 function initExpForm(item){
@@ -777,6 +898,8 @@ function initExpForm(item){
     allKomps.filter(k=>k.Experiment_ID===item.Experiment_ID).forEach(k=>addKompRow(k));
   } else {
     document.getElementById('f-exp-datum').value=new Date().toISOString().slice(0,10);
+    document.getElementById('f-exp-proj').value='';
+    document.getElementById('f-exp-person').value='';
     ['f-exp-id','f-exp-titel','f-exp-beschreibung','f-exp-beob','f-exp-komm'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-exp-presse').value='P1';
     document.getElementById('f-exp-pressdruck').value='0.7';

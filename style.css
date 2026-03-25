@@ -149,6 +149,6 @@
 
     /* Experiment title column – truncated by default, full when expanded or wrap-mode */
     .exp-titel-td { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    tr.exp-row.expanded .exp-titel-td,
-    #pane-exp.wrap-mode .exp-titel-td { white-space:normal; overflow:visible; text-overflow:clip; max-width:none; }
-    #pane-exp.wrap-mode .text-cell.collapsed { white-space:pre-wrap; overflow:visible; }
+    tr.exp-row.expanded .exp-titel-td { white-space:normal; overflow:visible; text-overflow:clip; max-width:none; }
+    #pane-exp.wrap-mode .exp-titel-td { white-space:normal; overflow:hidden; text-overflow:clip; word-break:break-word; }
+    #pane-exp.wrap-mode .text-cell.collapsed { white-space:pre-wrap; overflow:hidden; word-break:break-word; }

@@ -30,6 +30,7 @@
   <button onclick="showTab('chem',this)">Chemikalien</button>
   <button onclick="showTab('lafo',this)">Lagerfolgen</button>
   <button onclick="showTab('mach',this)">Maschinen</button>
+  <button onclick="showTab('proj',this)">Projekte</button>
 </nav>
 <main>
 
@@ -209,6 +210,25 @@
     </div>
   </div>
 
+  <!-- PROJEKTE -->
+  <div id="pane-proj" class="pane">
+    <div class="toolbar">
+      <input type="search" id="proj-search" placeholder="Suche nach Kürzel, Beschreibung…" oninput="filterProj()">
+      <span class="row-count" id="proj-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:80px">Kürzel</th>
+          <th>Beschreibung</th>
+          <th style="width:60px;text-align:right">Exp.</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="proj-tbody"><tr><td colspan="4" class="state">Lade…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
 </main>
 </div>
 
@@ -222,6 +242,20 @@
       <button class="panel-close" onclick="closeDetailDirect()">×</button>
     </div>
     <div class="modal-body" id="detail-body"><div class="state">Lade…</div></div>
+  </div>
+</div>
+
+<!-- PANEL: Projekt -->
+<div class="panel" id="panel-proj">
+  <div class="panel-head"><h2>Projekt bearbeiten</h2><button class="panel-close" onclick="closePanel()">×</button></div>
+  <div class="panel-body">
+    <div id="proj-alert"></div>
+    <div class="field"><label>Kürzel</label><input type="text" id="f-proj-kuerzel" disabled></div>
+    <div class="field"><label>Beschreibung</label><input type="text" id="f-proj-beschreibung"></div>
+  </div>
+  <div class="panel-foot">
+    <button class="btn btn-secondary" onclick="closePanel()">Abbrechen</button>
+    <button class="btn btn-primary" onclick="saveProj()">Speichern</button>
   </div>
 </div>
 
