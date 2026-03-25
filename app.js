@@ -92,7 +92,7 @@ async function spDeleteAttachment(listName,itemId,fileName){const token=await ge
 // ─── Experiment status ────────────────────────────────────────────────────
 const EXP_STATUS_COLORS=['#2CD2A7','#FF9933','#424242'];
 const EXP_STATUS_LABELS=['geplant','heute','fertig'];
-function getExpStatus(id){return parseInt(localStorage.getItem('expStatus-'+id)||'0');}
+function getExpStatus(id){return parseInt(localStorage.getItem('expStatus-'+id)||'2');}
 function cycleExpStatus(id,event){event.stopPropagation();const s=(getExpStatus(id)+1)%3;localStorage.setItem('expStatus-'+id,s);const btn=document.getElementById('sb-'+id);if(btn){btn.style.background=EXP_STATUS_COLORS[s];btn.title=EXP_STATUS_LABELS[s];}}
 
 // ─── MPa color ────────────────────────────────────────────────────────────
@@ -1017,7 +1017,7 @@ async function saveExperiment(){
     const int={Experiment_ID:id,Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim(),Presse:document.getElementById('f-exp-presse').value||null,Pressdruck:pdVal!==''?parseFloat(pdVal):null,Presstemperatur:ptVal!==''?parseFloat(ptVal):null,Presszeit:pzVal!==''?parseFloat(pzVal):null};
     const sp=mapTo(int,FIELDS.experimente);
     if(editingExp){await spPatch(LIST.experimente,editingExp._spId,sp);Object.assign(editingExp,int);}
-    else{const saved=await spPost(LIST.experimente,sp);allExp.unshift({...int,_spId:saved.d.Id});}
+    else{const saved=await spPost(LIST.experimente,sp);const newId=int.Experiment_ID;localStorage.setItem('expStatus-'+newId,'0');allExp.unshift({...int,_spId:saved.d.Id});}
     // Handle Komponenten
     await Promise.all(deletedKomps.map(sid=>spDelete(LIST.komponenten,sid)));
     allKomps=allKomps.filter(k=>!deletedKomps.includes(k._spId));
