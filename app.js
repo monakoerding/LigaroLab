@@ -1,7 +1,7 @@
 // ─── Field mappings ────────────────────────────────────────────────────────
 const FIELDS = {
   personen:    { Kuerzel:'Title', Vorname:'field_1', Nachname:'field_2' },
-  projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'field_1' },
+  projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'Beschreibung' },
   lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2', Anwendung:'field_3' },
   experimente: {
     Experiment_ID:'Title', Projekt_Kuerzel:'field_2',
@@ -652,13 +652,11 @@ async function openDetail(event,expId){
     let html='';
     html+='<div class="modal-section"><h3>Zusammensetzung</h3>';
     if(kompsNote)html+=kompsNote;
-    else{
-      html+='<table class="modal-table"><thead><tr><th>Komponente</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th><th></th></tr></thead><tbody id="komp-detail-tbody">';
-      if(komps.length)komps.forEach(k=>{html+=dKompRow(k,expId);});
-      else html+=`<tr id="komp-empty-row"><td colspan="6" class="modal-empty">Keine Komponenten eingetragen.</td></tr>`;
-      html+='</tbody></table>';
-      html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dKompAdd('${esc(expId)}')">+ Komponente</button>`;
-    }
+    html+='<table class="modal-table"><thead><tr><th>Komponente</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th><th></th></tr></thead><tbody id="komp-detail-tbody">';
+    if(komps.length)komps.forEach(k=>{html+=dKompRow(k,expId);});
+    else html+=`<tr id="komp-empty-row"><td colspan="6" class="modal-empty">Keine Komponenten eingetragen.</td></tr>`;
+    html+='</tbody></table>';
+    html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dKompAdd('${esc(expId)}')">+ Komponente</button>`;
     html+='</div>';
     html+='<div class="modal-section"><h3>Materialprüfung</h3>';
     if(mats.length){html+='<table class="modal-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">Holzbruch %</th><th style="text-align:right">L × B</th><th style="text-align:right">Kraft (N)</th><th>Kommentar</th></tr></thead><tbody>';mats.forEach(m=>{const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm} × ${m.Breite_mm}`:'';html+=`<tr><td>${esc(m.Lagerfolge_ID)}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${lxb}</td><td style="text-align:right">${m.Kraft_N??''}</td><td>${esc(m.Kommentar)}</td></tr>`;});html+='</tbody></table>';}
