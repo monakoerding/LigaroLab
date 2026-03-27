@@ -129,9 +129,17 @@
       <button class="btn btn-secondary" onclick="exportExcel()">↓ Excel</button>
       <button class="btn btn-secondary" onclick="plotRes()">📊 Plot</button>
     </div>
+    <div class="sel-bar" id="res-sel-bar">
+      <input type="checkbox" id="res-sel-all" onchange="toggleAllResSel(this.checked)" title="Alle auswählen">
+      <span id="res-sel-count">0 ausgewählt</span>
+      <button class="btn btn-primary btn-sm" onclick="confirmPlotFromSel()">📊 Plot erstellen</button>
+      <button class="btn btn-secondary btn-sm" onclick="confirmExcelFromSel()">↓ Excel</button>
+      <button class="btn btn-secondary btn-sm" onclick="exitPlotSel()">Abbrechen</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
+          <th id="res-cb-th" style="display:none;width:32px"></th>
           <th class="sortable" onclick="setSort('res','Experiment_ID')">ID <span class="sort-ind" id="si-res-Experiment_ID">↕</span></th>
           <th class="sortable" onclick="setSort('res','Titel')">Titel <span class="sort-ind" id="si-res-Titel">↕</span></th>
           <th class="sortable" onclick="setSort('res','Datum')">Datum <span class="sort-ind" id="si-res-Datum">▼</span></th>
@@ -183,10 +191,11 @@
           <th style="width:20px"></th>
           <th>ID</th>
           <th>Name</th>
+          <th>Kurzform</th>
           <th>Norm</th>
           <th></th>
         </tr></thead>
-        <tbody id="lafo-tbody"><tr><td colspan="5" class="state">Lade…</td></tr></tbody>
+        <tbody id="lafo-tbody"><tr><td colspan="6" class="state">Lade…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -255,7 +264,16 @@
       <h2>Ergebnisse – Plot</h2>
       <button class="panel-close" onclick="closePlot()">×</button>
     </div>
-    <div class="plot-body" id="plot-body"></div>
+    <div class="plot-wrapper">
+      <div class="plot-body" id="plot-body"></div>
+      <div class="plot-side" id="plot-side">
+        <h3>Plottitel</h3>
+        <input type="text" id="plot-title-input" placeholder="Titel (optional)" oninput="updatePlotTitle(this.value)">
+        <hr>
+        <h3>Achsenbeschriftung</h3>
+        <div id="plot-label-inputs"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -493,7 +511,10 @@
       <div class="field"><label>Lagerfolge-ID <span class="req">*</span></label><input type="text" id="f-lafo-id" oninput="this.value=this.value.toUpperCase()"></div>
       <div class="field"><label>Norm</label><input type="text" id="f-lafo-norm"></div>
     </div>
-    <div class="field"><label>Name <span class="req">*</span></label><input type="text" id="f-lafo-name"></div>
+    <div class="field-row">
+      <div class="field"><label>Name <span class="req">*</span></label><input type="text" id="f-lafo-name"></div>
+      <div class="field"><label>Kurzform</label><input type="text" id="f-lafo-kurzform" placeholder="z.B. dry"></div>
+    </div>
     <div class="field"><label>Beschreibung / Anwendung</label><textarea id="f-lafo-anwendung" style="min-height:52px"></textarea></div>
     <div class="field">
       <label>Lagerungsschritte</label>

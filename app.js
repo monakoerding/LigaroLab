@@ -2,7 +2,7 @@
 const FIELDS = {
   personen:    { Kuerzel:'Title', Vorname:'field_1', Nachname:'field_2' },
   projekte:    { Projekt_Kuerzel:'Title', Beschreibung:'field_1' },
-  lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2', Anwendung:'field_3' },
+  lagerfolgen: { Lagerfolge_ID:'Title', Name:'field_1', Norm:'field_2', Anwendung:'field_3', Kurzform:'Kurzform' },
   experimente: {
     Experiment_ID:'Title', Projekt_Kuerzel:'field_2',
     Datum:'field_3', Person_Kuerzel:'field_4', Projekttitel:'field_5',
@@ -336,6 +336,8 @@ function computeErgebnisse(){
 }
 
 let cachedErgebnisse=[],currentResRows=[];
+let plotSelMode=false;
+const plotSelIds=new Set();
 function filterRes(){
   const q=document.getElementById('res-search').value.toLowerCase();
   const df=document.getElementById('res-date-from').value;
@@ -349,13 +351,21 @@ function filterRes(){
   );
   rows=applySort(rows,'res',['MWMpa','n','MWSC']);
   currentResRows=rows;
+  // selection mode UI
+  const selBar=document.getElementById('res-sel-bar');
+  const cbTh=document.getElementById('res-cb-th');
+  if(selBar)selBar.style.display=plotSelMode?'flex':'none';
+  if(cbTh)cbTh.style.display=plotSelMode?'':'none';
+  if(plotSelMode){const allCb=document.getElementById('res-sel-all');if(allCb)allCb.checked=plotSelIds.size>0&&plotSelIds.size===rows.length;updateSelCount();}
+  const colCount=plotSelMode?13:12;
   document.getElementById('res-count').textContent=rows.length+' Gruppen';
   document.getElementById('res-tbody').innerHTML=rows.length
     ?rows.map(r=>{
         const style=mpaStyle(r.MWMpa.toFixed(2),r.Lagerfolge_ID);
         const eid=esc(r.Experiment_ID);
+        const cbCell=plotSelMode?`<td onclick="event.stopPropagation()" style="width:32px;text-align:center"><input type="checkbox" class="res-cb" onchange="onResCbChange(this,'${eid}')" ${plotSelIds.has(r.Experiment_ID)?'checked':''}></td>`:'';
         return `<tr>
-          <td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
+          ${cbCell}<td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.Titel)}</td>
           <td style="white-space:nowrap">${fmtDate(r.Datum)}</td>
           <td>${esc(r.Person)}</td>
@@ -369,10 +379,48 @@ function filterRes(){
           <td style="text-align:right;font-size:12px;color:#666">${r.StdAbwSC!=null&&r.nSC>1?fmtDec(r.StdAbwSC,2)+'%':''}</td>
         </tr>`;
       }).join('')
-    :'<tr><td colspan="12" class="state">Keine Daten.</td></tr>';
+    :`<tr><td colspan="${colCount}" class="state">Keine Daten.</td></tr>`;
+}
+function enterPlotSel(){
+  plotSelMode=true;plotSelIds.clear();filterRes();
+}
+function exitPlotSel(){
+  plotSelMode=false;plotSelIds.clear();filterRes();
+}
+function toggleAllResSel(checked){
+  currentResRows.forEach(r=>checked?plotSelIds.add(r.Experiment_ID):plotSelIds.delete(r.Experiment_ID));
+  document.querySelectorAll('.res-cb').forEach(cb=>cb.checked=checked);
+  updateSelCount();
+}
+function onResCbChange(cb,expId){
+  cb.checked?plotSelIds.add(expId):plotSelIds.delete(expId);
+  const allCb=document.getElementById('res-sel-all');
+  if(allCb)allCb.checked=plotSelIds.size===currentResRows.length&&currentResRows.length>0;
+  updateSelCount();
+}
+function updateSelCount(){
+  const el=document.getElementById('res-sel-count');
+  if(el)el.textContent=plotSelIds.size+' ausgewählt';
+}
+function confirmPlotFromSel(){
+  if(!plotSelIds.size){alert('Bitte mindestens ein Experiment auswählen.');return;}
+  const rows=currentResRows.filter(r=>plotSelIds.has(r.Experiment_ID));
+  exitPlotSel();
+  openPlotWithRows(rows);
+}
+function confirmExcelFromSel(){
+  if(!plotSelIds.size){alert('Bitte mindestens ein Experiment auswählen.');return;}
+  const rows=currentResRows.filter(r=>plotSelIds.has(r.Experiment_ID));
+  exitPlotSel();
+  doExportExcel(rows);
 }
 
 // ─── Plot ─────────────────────────────────────────────────────────────────
+const LAFO_COLORS=[
+  'rgba(30,58,138,0.78)','rgba(109,40,217,0.78)','rgba(5,150,105,0.78)',
+  'rgba(220,38,38,0.78)','rgba(217,119,6,0.78)','rgba(37,99,235,0.78)',
+  'rgba(190,18,60,0.78)','rgba(13,148,136,0.78)',
+];
 const errDotsPlugin={
   id:'errDots',
   afterDatasetsDraw(chart){
@@ -401,24 +449,51 @@ const errDotsPlugin={
   }
 };
 
-function buildPlotConfig(rows){
-  const labels=rows.map(r=>r.Experiment_ID+(r.Lagerfolge_ID?' | '+r.Lagerfolge_ID:''));
-  const mpaColors=rows.map(r=>(r.Lagerfolge_ID||'').toUpperCase().includes('WET')?'rgba(120,60,170,0.72)':'rgba(30,58,95,0.75)');
+// labelMap: expId → custom label string (empty = use expId)
+function buildPlotConfig(rows, labelMap, plotTitle){
+  // unique experiment IDs (preserve order) and lagerfolge IDs
+  const expIds=[...new Set(rows.map(r=>r.Experiment_ID))];
+  const lafoIds=[...new Set(rows.map(r=>r.Lagerfolge_ID||''))];
+  const labels=expIds.map(id=>(labelMap&&labelMap[id])||id);
+  // fast lookup
+  const rowByKey={};
+  rows.forEach(r=>{rowByKey[r.Experiment_ID+'||'+(r.Lagerfolge_ID||'')]=r;});
+  const datasets=[];
+  // one MPa bar-dataset per LAFO
+  lafoIds.forEach((lafoId,li)=>{
+    const lafoObj=lagerfolgen.find(l=>l.Lagerfolge_ID===lafoId);
+    const kurzform=lafoObj?.Kurzform||(lafoId||'–');
+    const color=LAFO_COLORS[li%LAFO_COLORS.length];
+    const data=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?r.MWMpa:null;});
+    const errBars=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r&&r.n>1?r.StdAbw:null;});
+    const dots=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?r.mpaVals:[];});
+    datasets.push({label:`MPa (MW) ${kurzform}`,data,backgroundColor:color,yAxisID:'y',order:2,_errBars:errBars,_dots:dots});
+  });
+  // Holzbruch per LAFO (only if any data)
+  lafoIds.forEach((lafoId,li)=>{
+    const lafoObj=lagerfolgen.find(l=>l.Lagerfolge_ID===lafoId);
+    const kurzform=lafoObj?.Kurzform||(lafoId||'–');
+    const data=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?.MWHolzbruch??null;});
+    if(data.some(v=>v!=null)){
+      const base=LAFO_COLORS[li%LAFO_COLORS.length];
+      datasets.push({label:`Holzbruch % ${kurzform}`,data,backgroundColor:base.replace('0.78','0.35'),yAxisID:'y2',order:3});
+    }
+  });
+  // SC: one value per experiment (independent of LAFO), only if any data
+  const hasSC=rows.some(r=>r.MWSC!=null);
+  if(hasSC){
+    const scByExp={};
+    rows.forEach(r=>{if(r.MWSC!=null&&scByExp[r.Experiment_ID]==null)scByExp[r.Experiment_ID]=r.MWSC;});
+    datasets.push({label:'SC %',data:expIds.map(id=>scByExp[id]??null),backgroundColor:'rgba(44,210,167,0.72)',yAxisID:'y2',order:4});
+  }
   return{
     type:'bar',
-    data:{
-      labels,
-      datasets:[
-        {label:'MPa (MW)',data:rows.map(r=>r.MWMpa),backgroundColor:mpaColors,yAxisID:'y',
-          _errBars:rows.map(r=>r.n>1?r.StdAbw:null),_dots:rows.map(r=>r.mpaVals||[]),order:2},
-        {label:'Holzbruch %',data:rows.map(r=>r.MWHolzbruch),backgroundColor:'rgba(255,153,51,0.72)',yAxisID:'y2',order:3},
-        {label:'SC %',data:rows.map(r=>r.MWSC),backgroundColor:'rgba(44,210,167,0.72)',yAxisID:'y2',order:4},
-      ]
-    },
+    data:{labels,datasets},
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{position:'top',labels:{font:{size:12}}},
+        title:{display:!!(plotTitle&&plotTitle.trim()),text:plotTitle||''},
         tooltip:{callbacks:{label(ctx){const v=ctx.parsed.y;if(v==null)return null;return`${ctx.dataset.label}: ${fmtDec(v,3)}`;}}}
       },
       scales:{
@@ -431,32 +506,69 @@ function buildPlotConfig(rows){
   };
 }
 
-let _plotCharts=[];
+let _plotCharts=[],_plotRows=[];
 function plotRes(){
+  if(!currentResRows.length){alert('Keine Daten für den Plot vorhanden.');return;}
+  enterPlotSel();
+}
+function openPlotWithRows(rows){
   if(typeof Chart==='undefined'){alert('Chart.js konnte nicht geladen werden. Bitte Seite neu laden.');return;}
-  const rows=currentResRows;
-  if(!rows.length){alert('Keine Daten für den Plot vorhanden.');return;}
   const MAX_PER=10,MAX_CHARTS=5;
-  if(rows.length>MAX_PER*MAX_CHARTS){alert(`Zu viele Einträge (${rows.length}) für den Plot. Maximal ${MAX_PER*MAX_CHARTS}. Bitte Filter einschränken.`);return;}
+  const uniqueExpIds=[...new Set(rows.map(r=>r.Experiment_ID))];
+  if(uniqueExpIds.length>MAX_PER*MAX_CHARTS){alert(`Zu viele Experimente (${uniqueExpIds.length}) für den Plot. Maximal ${MAX_PER*MAX_CHARTS}.`);return;}
   _plotCharts.forEach(c=>c.destroy());_plotCharts=[];
-  const chunks=[];for(let i=0;i<rows.length;i+=MAX_PER)chunks.push(rows.slice(i,i+MAX_PER));
+  _plotRows=rows;
+  // chunk by unique experiment IDs
+  const expChunks=[];
+  for(let i=0;i<uniqueExpIds.length;i+=MAX_PER)expChunks.push(uniqueExpIds.slice(i,i+MAX_PER));
   const body=document.getElementById('plot-body');body.innerHTML='';
   const overlay=document.getElementById('plot-overlay');overlay.style.display='flex';overlay.classList.add('open');
-  chunks.forEach((chunk,ci)=>{
+  // reset side-panel inputs
+  const titleInput=document.getElementById('plot-title-input');if(titleInput)titleInput.value='';
+  const labelDiv=document.getElementById('plot-label-inputs');if(labelDiv){
+    labelDiv.innerHTML=uniqueExpIds.map(id=>`<div style="margin-bottom:6px"><div class="label-id">${esc(id)}</div><input type="text" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div>`).join('');
+  }
+  expChunks.forEach((expIds,ci)=>{
+    const chunk=rows.filter(r=>expIds.includes(r.Experiment_ID));
     const wrap=document.createElement('div');wrap.className='plot-chart-wrap';
-    if(chunks.length>1){const h=document.createElement('div');h.className='plot-chart-title';h.textContent=`Grafik ${ci+1} / ${chunks.length}`;wrap.appendChild(h);}
+    if(expChunks.length>1){const h=document.createElement('div');h.className='plot-chart-title';h.textContent=`Grafik ${ci+1} / ${expChunks.length}`;wrap.appendChild(h);}
     const cw=document.createElement('div');cw.style.cssText='position:relative;height:420px';
     const canvas=document.createElement('canvas');canvas.id='plot-cv-'+ci;cw.appendChild(canvas);wrap.appendChild(cw);
     const foot=document.createElement('div');foot.className='plot-chart-foot';
     const dlBtn=document.createElement('button');dlBtn.className='btn btn-secondary btn-sm';dlBtn.textContent='↓ PNG';dlBtn.onclick=()=>downloadPlotChart(ci);
     const lbl=document.createElement('span');lbl.style.cssText='font-size:13px;margin-left:10px';lbl.textContent='Als Anhang zu:';
     const sel=document.createElement('select');sel.id='plot-sel-'+ci;sel.style.cssText='margin:0 6px;min-width:140px';
-    [...new Set(chunk.map(r=>r.Experiment_ID))].forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;sel.appendChild(o);});
+    expIds.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;sel.appendChild(o);});
     const saveBtn=document.createElement('button');saveBtn.className='btn btn-primary btn-sm';saveBtn.textContent='📎 Speichern';saveBtn.onclick=()=>savePlotChart(ci);
     const st=document.createElement('span');st.id='plot-st-'+ci;st.style.cssText='font-size:12px;margin-left:8px';
     foot.append(dlBtn,lbl,sel,saveBtn,st);wrap.appendChild(foot);body.appendChild(wrap);
-    try{_plotCharts.push(new Chart(canvas,buildPlotConfig(chunk)));}
-    catch(e){cw.innerHTML=`<p style="padding:20px;color:#c53030">Fehler beim Erstellen des Charts: ${esc(e.message)}</p>`;}
+    try{
+      const chart=new Chart(canvas,buildPlotConfig(chunk,getLabelMap(),''));
+      chart._expIds=expIds;
+      _plotCharts.push(chart);
+    }catch(e){cw.innerHTML=`<p style="padding:20px;color:#c53030">Fehler beim Erstellen des Charts: ${esc(e.message)}</p>`;}
+  });
+}
+function getLabelMap(){
+  const map={};
+  document.querySelectorAll('#plot-label-inputs input[data-expid]').forEach(inp=>{
+    if(inp.value.trim())map[inp.dataset.expid]=inp.value.trim();
+  });
+  return map;
+}
+function updatePlotLabels(){
+  const lm=getLabelMap();
+  _plotCharts.forEach(chart=>{
+    if(!chart._expIds)return;
+    chart.data.labels=chart._expIds.map(id=>lm[id]||id);
+    chart.update();
+  });
+}
+function updatePlotTitle(val){
+  _plotCharts.forEach(chart=>{
+    chart.options.plugins.title.display=!!(val&&val.trim());
+    chart.options.plugins.title.text=val||'';
+    chart.update();
   });
 }
 function closePlot(){const o=document.getElementById('plot-overlay');o.classList.remove('open');o.style.display='none';}
@@ -479,18 +591,8 @@ async function savePlotChart(ci){
   }catch(e){st.textContent='Fehler: '+e.message;st.style.color='#c53030';}
 }
 
-function exportExcel(){
-  const q=document.getElementById('res-search').value.toLowerCase();
-  const df=document.getElementById('res-date-from').value;
-  const dt=document.getElementById('res-date-to').value;
-  let rows=cachedErgebnisse.filter(r=>
-    (!selectedResProj.size||selectedResProj.has(r.Projekt))&&
-    (!selectedResPers.size||selectedResPers.has(r.Person))&&
-    (!selectedResLafo.size||selectedResLafo.has(r.Lagerfolge_ID))&&
-    (!df||fmtDate(r.Datum)>=df)&&(!dt||fmtDate(r.Datum)<=dt)&&
-    (!q||`${r.Experiment_ID} ${r.Titel}`.toLowerCase().includes(q))
-  );
-  rows=applySort(rows,'res',['MWMpa','n','MWSC']);
+function exportExcel(){enterPlotSel();}
+function doExportExcel(rows){
   const data=[
     ['Experiment-ID','Titel','Datum','Person','Protokoll','n','MW MPa','StdAbw (MPa)','MW Holzbruch (%)','n SC','MW SC%','StdAbw SC%'],
     ...rows.map(r=>[r.Experiment_ID,r.Titel,fmtDate(r.Datum),r.Person,r.Lagerfolge_ID,r.n,
@@ -569,10 +671,10 @@ function filterLafo(){
         const steps=[...allLafoSchritte.filter(s=>s.Lagerfolge_ID===l.Lagerfolge_ID)].sort((a,b)=>(parseInt(a.Schritt_Nr)||0)-(parseInt(b.Schritt_Nr)||0));
         const hasSteps=steps.length>0;
         const chevron=hasSteps?`<span style="font-size:10px;opacity:.5" id="lchev-${lid}">▶</span>`:'';
-        const stepsRow=hasSteps?`<tr class="chem-expand-row" id="lafo-exp-${lid}"><td colspan="5"><div class="chem-expand-inner"><table class="modal-table" style="font-size:12px"><thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th style="text-align:right">Temp. (°C)</th><th style="text-align:right">rH (%)</th><th style="text-align:right">Dauer (h)</th><th>Kommentar</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${esc(s.Schritt_Nr)}</td><td>${esc(s.Behandlung)}</td><td>${esc(s.Medium)}</td><td style="text-align:right">${esc(s.Temperatur_C)}</td><td style="text-align:right">${esc(s.RH_pct)}</td><td style="text-align:right">${esc(s.Dauer_h)}</td><td style="font-size:11px;color:#666">${esc(s.Kommentar)}</td></tr>`).join('')}</tbody></table></div></td></tr>`:'';
-        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td><td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editLafo('${esc(l.Lagerfolge_ID)}')">✏️</button></td></tr>${stepsRow}`;
+        const stepsRow=hasSteps?`<tr class="chem-expand-row" id="lafo-exp-${lid}"><td colspan="6"><div class="chem-expand-inner"><table class="modal-table" style="font-size:12px"><thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th style="text-align:right">Temp. (°C)</th><th style="text-align:right">rH (%)</th><th style="text-align:right">Dauer (h)</th><th>Kommentar</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${esc(s.Schritt_Nr)}</td><td>${esc(s.Behandlung)}</td><td>${esc(s.Medium)}</td><td style="text-align:right">${esc(s.Temperatur_C)}</td><td style="text-align:right">${esc(s.RH_pct)}</td><td style="text-align:right">${esc(s.Dauer_h)}</td><td style="font-size:11px;color:#666">${esc(s.Kommentar)}</td></tr>`).join('')}</tbody></table></div></td></tr>`:'';
+        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td style="font-size:12px;color:#1e3a5f;font-weight:600">${esc(l.Kurzform||'')}</td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td><td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editLafo('${esc(l.Lagerfolge_ID)}')">✏️</button></td></tr>${stepsRow}`;
       }).join('')
-    :'<tr><td colspan="5" class="state">Keine Lagerfolgen gefunden.</td></tr>';
+    :'<tr><td colspan="6" class="state">Keine Lagerfolgen gefunden.</td></tr>';
 }
 function toggleLafoRow(lid){const expRow=document.getElementById('lafo-exp-'+lid);const chev=document.getElementById('lchev-'+lid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);if(chev)chev.textContent=open?'▼':'▶';}
 
@@ -636,12 +738,13 @@ function initLafoForm(item){
   if(item){
     document.getElementById('f-lafo-id').value=item.Lagerfolge_ID||'';
     document.getElementById('f-lafo-name').value=item.Name||'';
+    document.getElementById('f-lafo-kurzform').value=item.Kurzform||'';
     document.getElementById('f-lafo-norm').value=item.Norm||'';
     document.getElementById('f-lafo-anwendung').value=item.Anwendung||'';
     const steps=[...allLafoSchritte.filter(s=>s.Lagerfolge_ID===item.Lagerfolge_ID)].sort((a,b)=>(parseInt(a.Schritt_Nr)||0)-(parseInt(b.Schritt_Nr)||0));
     steps.forEach(s=>addLafoSchritt(s));
   } else {
-    ['f-lafo-id','f-lafo-name','f-lafo-norm','f-lafo-anwendung'].forEach(id=>document.getElementById(id).value='');
+    ['f-lafo-id','f-lafo-name','f-lafo-kurzform','f-lafo-norm','f-lafo-anwendung'].forEach(id=>document.getElementById(id).value='');
     addLafoSchritt();
   }
 }
@@ -670,7 +773,7 @@ async function saveLafo(){
   if(!editingLafo&&lagerfolgen.some(l=>l.Lagerfolge_ID===id)){alertEl.innerHTML=`<div class="alert alert-err">ID „${id}" existiert bereits.</div>`;return;}
   btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
   try{
-    const int={Lagerfolge_ID:id,Name:name,Norm:document.getElementById('f-lafo-norm').value.trim(),Anwendung:document.getElementById('f-lafo-anwendung').value.trim()};
+    const int={Lagerfolge_ID:id,Name:name,Kurzform:document.getElementById('f-lafo-kurzform').value.trim(),Norm:document.getElementById('f-lafo-norm').value.trim(),Anwendung:document.getElementById('f-lafo-anwendung').value.trim()};
     const sp=mapTo(int,FIELDS.lagerfolgen);
     if(editingLafo){await spPatch(LIST.lagerfolgen,editingLafo._spId,sp);Object.assign(editingLafo,int);}
     else{const saved=await spPost(LIST.lagerfolgen,sp);lagerfolgen.push({...int,_spId:saved.d.Id});lagerfolgen.sort((a,b)=>a.Lagerfolge_ID.localeCompare(b.Lagerfolge_ID));}
