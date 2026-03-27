@@ -672,11 +672,26 @@ function filterLafo(){
         const hasSteps=steps.length>0;
         const chevron=hasSteps?`<span style="font-size:10px;opacity:.5" id="lchev-${lid}">▶</span>`:'';
         const stepsRow=hasSteps?`<tr class="chem-expand-row" id="lafo-exp-${lid}"><td colspan="6"><div class="chem-expand-inner"><table class="modal-table" style="font-size:12px"><thead><tr><th>Nr.</th><th>Behandlung</th><th>Medium</th><th style="text-align:right">Temp. (°C)</th><th style="text-align:right">rH (%)</th><th style="text-align:right">Dauer (h)</th><th>Kommentar</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${esc(s.Schritt_Nr)}</td><td>${esc(s.Behandlung)}</td><td>${esc(s.Medium)}</td><td style="text-align:right">${esc(s.Temperatur_C)}</td><td style="text-align:right">${esc(s.RH_pct)}</td><td style="text-align:right">${esc(s.Dauer_h)}</td><td style="font-size:11px;color:#666">${esc(s.Kommentar)}</td></tr>`).join('')}</tbody></table></div></td></tr>`:'';
-        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td style="font-size:12px;color:#1e3a5f;font-weight:600">${esc(l.Kurzform||'')}</td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td><td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editLafo('${esc(l.Lagerfolge_ID)}')">✏️</button></td></tr>${stepsRow}`;
+        return`<tr class="chem-row" onclick="${hasSteps?`toggleLafoRow('${lid}')`:''}" id="lrow-${lid}"><td style="width:20px;padding:9px 5px 9px 13px">${chevron}</td><td><strong>${esc(l.Lagerfolge_ID)}</strong></td><td>${esc(l.Name)}</td><td onclick="event.stopPropagation()" style="padding:4px 8px"><input type="text" value="${esc(l.Kurzform||'')}" placeholder="–" style="width:80px;font-size:12px;padding:3px 6px;border:1px solid #cbd5e0;border-radius:4px;font-weight:600;color:#1e3a5f" onkeydown="if(event.key==='Enter')this.blur()" onblur="saveLafoKurzform('${esc(l.Lagerfolge_ID)}',this.value,this)"></td><td style="font-size:12px;color:#555">${esc(l.Norm)}</td><td class="col-actions" onclick="event.stopPropagation()"><button class="btn-icon" title="Bearbeiten" onclick="editLafo('${esc(l.Lagerfolge_ID)}')">✏️</button></td></tr>${stepsRow}`;
       }).join('')
     :'<tr><td colspan="6" class="state">Keine Lagerfolgen gefunden.</td></tr>';
 }
 function toggleLafoRow(lid){const expRow=document.getElementById('lafo-exp-'+lid);const chev=document.getElementById('lchev-'+lid);if(!expRow)return;const open=!expRow.classList.contains('show');expRow.classList.toggle('show',open);if(chev)chev.textContent=open?'▼':'▶';}
+async function saveLafoKurzform(lafoId,val,inputEl){
+  const lafo=lagerfolgen.find(l=>l.Lagerfolge_ID===lafoId);
+  if(!lafo)return;
+  const trimmed=val.trim();
+  if(trimmed===lafo.Kurzform)return;
+  inputEl.disabled=true;
+  try{
+    await spPatch(LIST.lagerfolgen,lafo._spId,{[FIELDS.lagerfolgen.Kurzform]:trimmed});
+    lafo.Kurzform=trimmed;
+    inputEl.style.borderColor='#22c55e';setTimeout(()=>{inputEl.style.borderColor='';inputEl.disabled=false;},800);
+  }catch(e){
+    alert('Fehler beim Speichern: '+e.message);
+    inputEl.value=lafo.Kurzform||'';inputEl.disabled=false;
+  }
+}
 
 // ─── Maschinen list ────────────────────────────────────────────────────────
 function filterMasch(){
