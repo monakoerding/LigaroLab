@@ -76,6 +76,7 @@ function setStatus(msg){document.getElementById('status-msg').textContent=msg;}
 function enc(s){return encodeURIComponent(s);}
 function esc(v){if(v==null)return'';return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmtDate(v){if(!v||v.startsWith('0001'))return'';return v.substring(0,10);}
+function fmtDec(n,d){if(n==null||isNaN(n))return'';return Number(n).toFixed(d).replace('.',',');}
 function calcMpa(l,b,f){const a=parseFloat(l)*parseFloat(b),fo=parseFloat(f);if(!a||!fo)return null;return(fo/a).toFixed(2);}
 
 async function getDigest(token){if(digestVal&&Date.now()<digestExp)return digestVal;const r=await fetch(`${SP}/_api/contextinfo`,{method:'POST',headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});if(!r.ok)throw new Error('contextinfo '+r.status);const d=await r.json();digestVal=d.d.GetContextWebInformation.FormDigestValue;digestExp=Date.now()+25*60*1000;return digestVal;}
@@ -359,12 +360,12 @@ function filterRes(){
           <td>${esc(r.Person)}</td>
           <td style="font-size:12px">${esc(r.Lagerfolge_ID)}</td>
           <td style="text-align:right" class="stat-n">${r.n}</td>
-          <td style="text-align:right"><span class="mpa-chip" style="${style}">${r.MWMpa.toFixed(3)}</span></td>
-          <td style="text-align:right;font-size:12px;color:#666">${r.StdAbw.toFixed(3)}</td>
-          <td style="text-align:right;font-size:12px">${r.MWHolzbruch!=null?r.MWHolzbruch.toFixed(1)+'%':''}</td>
+          <td style="text-align:right"><span class="mpa-chip" style="${style}">${fmtDec(r.MWMpa,3)}</span></td>
+          <td style="text-align:right;font-size:12px;color:#666">${fmtDec(r.StdAbw,3)}</td>
+          <td style="text-align:right;font-size:12px">${r.MWHolzbruch!=null?fmtDec(r.MWHolzbruch,1)+'%':''}</td>
           <td style="text-align:right;font-size:12px;border-left:2px solid #e2e8f0">${r.nSC||''}</td>
-          <td style="text-align:right;font-size:12px">${r.MWSC!=null?r.MWSC.toFixed(2)+'%':''}</td>
-          <td style="text-align:right;font-size:12px;color:#666">${r.StdAbwSC!=null&&r.nSC>1?r.StdAbwSC.toFixed(2)+'%':''}</td>
+          <td style="text-align:right;font-size:12px">${r.MWSC!=null?fmtDec(r.MWSC,2)+'%':''}</td>
+          <td style="text-align:right;font-size:12px;color:#666">${r.StdAbwSC!=null&&r.nSC>1?fmtDec(r.StdAbwSC,2)+'%':''}</td>
         </tr>`;
       }).join('')
     :'<tr><td colspan="12" class="state">Keine Daten.</td></tr>';
@@ -667,12 +668,12 @@ async function openDetail(event,expId){
     html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dKompAdd('${esc(expId)}')">+ Komponente</button>`;
     html+='</div>';
     html+='<div class="modal-section"><h3>Materialprüfung</h3>';
-    if(mats.length){html+='<table class="modal-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">Holzbruch %</th><th style="text-align:right">L × B</th><th style="text-align:right">Kraft (N)</th><th>Kommentar</th></tr></thead><tbody>';mats.forEach(m=>{const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm} × ${m.Breite_mm}`:'';html+=`<tr><td>${esc(m.Lagerfolge_ID)}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa??''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${lxb}</td><td style="text-align:right">${m.Kraft_N??''}</td><td>${esc(m.Kommentar)}</td></tr>`;});html+='</tbody></table>';}
+    if(mats.length){html+='<table class="modal-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">Holzbruch %</th><th style="text-align:right">L × B</th><th style="text-align:right">Kraft (N)</th><th>Kommentar</th></tr></thead><tbody>';mats.forEach(m=>{const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm} × ${m.Breite_mm}`:'';html+=`<tr><td>${esc(m.Lagerfolge_ID)}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa!=null?String(mpa).replace('.',','):''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${lxb}</td><td style="text-align:right">${m.Kraft_N??''}</td><td>${esc(m.Kommentar)}</td></tr>`;});html+='</tbody></table>';}
     else html+='<p class="modal-empty">Keine Messungen vorhanden.</p>';
     html+='</div>';
     const scs=allSC.filter(s=>s.Experiment_ID===expId);
     html+='<div class="modal-section"><h3>Feststoffgehalt</h3>';
-    if(scs.length){html+='<table class="modal-table"><thead><tr><th>Probe</th><th style="text-align:right">Leergewicht (g)</th><th style="text-align:right">Einwaage (g)</th><th style="text-align:right">Endgewicht (g)</th><th style="text-align:right">SC%</th><th>Kommentar</th><th></th></tr></thead><tbody>';scs.forEach(s=>{const sc=calcSC(s.Leergewicht_g,s.Einwaage_g,s.Endgewicht_g);html+=`<tr><td>${esc(s.Probe)}</td><td style="text-align:right">${s.Leergewicht_g??''}</td><td style="text-align:right">${s.Einwaage_g??''}</td><td style="text-align:right">${s.Endgewicht_g??''}</td><td style="text-align:right;font-weight:600">${sc!=null?sc.toFixed(2)+'%':''}</td><td style="font-size:12px;color:#666">${esc(s.Kommentar)}</td><td><button class="btn-icon" title="Bearbeiten" onclick="editSC(${s._spId});closeDetailDirect()">✏️</button></td></tr>`;});html+='</tbody></table>';}
+    if(scs.length){html+='<table class="modal-table"><thead><tr><th>Probe</th><th style="text-align:right">Leergewicht (g)</th><th style="text-align:right">Einwaage (g)</th><th style="text-align:right">Endgewicht (g)</th><th style="text-align:right">SC%</th><th>Kommentar</th><th></th></tr></thead><tbody>';scs.forEach(s=>{const sc=calcSC(s.Leergewicht_g,s.Einwaage_g,s.Endgewicht_g);html+=`<tr><td>${esc(s.Probe)}</td><td style="text-align:right">${s.Leergewicht_g??''}</td><td style="text-align:right">${s.Einwaage_g??''}</td><td style="text-align:right">${s.Endgewicht_g??''}</td><td style="text-align:right;font-weight:600">${sc!=null?fmtDec(sc,2)+'%':''}</td><td style="font-size:12px;color:#666">${esc(s.Kommentar)}</td><td><button class="btn-icon" title="Bearbeiten" onclick="editSC(${s._spId});closeDetailDirect()">✏️</button></td></tr>`;});html+='</tbody></table>';}
     else html+='<p class="modal-empty">Keine SC-Messungen vorhanden. <button class="btn btn-secondary btn-sm" onclick="openSCPanel(\''+esc(expId)+'\');closeDetailDirect()">SC erfassen</button></p>';
     html+='</div>';
     if(exp&&(exp.Beschreibung||exp.Beobachtungen||exp.Kommentar)){html+='<div class="modal-section"><h3>Notizen</h3>';if(exp.Beschreibung)html+=`<div class="extra-label">Beschreibung</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beschreibung)}</p>`;if(exp.Beobachtungen)html+=`<div class="extra-label">Beobachtungen</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beobachtungen)}</p>`;if(exp.Kommentar)html+=`<div class="extra-label">Kommentar</div><p style="font-size:13px;white-space:pre-wrap">${esc(exp.Kommentar)}</p>`;html+='</div>';}
@@ -1068,14 +1069,14 @@ function initMatForm(item){
     document.getElementById('f-mat-l').value=item.Laenge_mm??'';
     document.getElementById('f-mat-b').value=item.Breite_mm??'';
     document.getElementById('f-mat-f').value=item.Kraft_N??'';
-    document.getElementById('f-mat-h').value=item.Holzbruch_pct??'';
+    document.getElementById('f-mat-h').value=item.Holzbruch_pct!=null?item.Holzbruch_pct*100:'';
     document.getElementById('f-mat-k').value=item.Kommentar||'';
   } else {document.getElementById('f-mat-expid').value='';document.getElementById('f-mat-maschine').value='Z2';document.getElementById('f-mat-lafo').value='LAFO-DRY-01';document.getElementById('spec-tbody').innerHTML='';specIdx=0;addSpecRow();addSpecRow();addSpecRow();}
 }
 function editMat(spId){const item=allMat.find(m=>m._spId===spId);if(!item)return;editingMat=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-mat').classList.add('open');activePanel='mat';initMatForm(item);}
-function addSpecRow(){const i=specIdx++;const tr=document.createElement('tr');tr.id='spec-row-'+i;tr.innerHTML=`<td><input type="number" id="sl-${i}" value="10" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sb-${i}" value="20" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sf-${i}" min="0" step="1" oninput="recalcMpa(${i})"></td><td class="mpa-cell" id="sm-${i}">–</td><td><input type="number" id="sh-${i}" min="0" max="1" step="0.01" placeholder="0–1"></td><td><input type="text" id="sk-${i}"></td><td><button class="del-btn" onclick="removeSpecRow(${i})">×</button></td>`;document.getElementById('spec-tbody').appendChild(tr);}
+function addSpecRow(){const i=specIdx++;const tr=document.createElement('tr');tr.id='spec-row-'+i;tr.innerHTML=`<td><input type="number" id="sl-${i}" value="10" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sb-${i}" value="20" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sf-${i}" min="0" step="1" oninput="recalcMpa(${i})"></td><td class="mpa-cell" id="sm-${i}">–</td><td><input type="number" id="sh-${i}" min="0" max="100" step="1" placeholder="0–100"></td><td><input type="text" id="sk-${i}"></td><td><button class="del-btn" onclick="removeSpecRow(${i})">×</button></td>`;document.getElementById('spec-tbody').appendChild(tr);}
 function removeSpecRow(i){document.getElementById('spec-row-'+i)?.remove();}
-function recalcMpa(i){const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value,m=document.getElementById('sm-'+i);if(m){const v=calcMpa(l,b,f);m.textContent=v?v+' MPa':'–';}}
+function recalcMpa(i){const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value,m=document.getElementById('sm-'+i);if(m){const v=calcMpa(l,b,f);m.textContent=v?v.replace('.',',')+' MPa':'–';}}
 async function saveMaterial(){
   const alertEl=document.getElementById('mat-alert'),btn=document.getElementById('btn-save-mat');
   const expId=document.getElementById('f-mat-expid').value.trim().toUpperCase(),lafo=document.getElementById('f-mat-lafo').value;
@@ -1086,11 +1087,11 @@ async function saveMaterial(){
     if(editingMat){
       const fVal=document.getElementById('f-mat-f').value,hVal=document.getElementById('f-mat-h').value;
       if(!fVal||hVal===''){alertEl.innerHTML='<div class="alert alert-err">Kraft und Holzbruch sind Pflichtfelder.</div>';btn.disabled=false;return;}
-      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Maschine:document.getElementById('f-mat-maschine').value||null,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(fVal),Holzbruch_pct:parseFloat(hVal),Kommentar:document.getElementById('f-mat-k').value||''};
+      const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Maschine:document.getElementById('f-mat-maschine').value||null,Laenge_mm:parseFloat(document.getElementById('f-mat-l').value)||null,Breite_mm:parseFloat(document.getElementById('f-mat-b').value)||null,Kraft_N:parseFloat(fVal),Holzbruch_pct:parseFloat(hVal)/100,Kommentar:document.getElementById('f-mat-k').value||''};
       await spPatch(LIST.material,editingMat._spId,mapTo(int,FIELDS.material));Object.assign(editingMat,int);
     } else {
       const rows=[];
-      document.querySelectorAll('#spec-tbody tr').forEach(tr=>{const i=tr.id.replace('spec-row-','');const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value;const h=document.getElementById('sh-'+i)?.value,k=document.getElementById('sk-'+i)?.value;if(l&&b&&f&&h!==''){const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(l),Breite_mm:parseFloat(b),Kraft_N:parseFloat(f),Holzbruch_pct:parseFloat(h),Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.material)});}});
+      document.querySelectorAll('#spec-tbody tr').forEach(tr=>{const i=tr.id.replace('spec-row-','');const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value;const h=document.getElementById('sh-'+i)?.value,k=document.getElementById('sk-'+i)?.value;if(l&&b&&f&&h!==''){const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:parseFloat(l),Breite_mm:parseFloat(b),Kraft_N:parseFloat(f),Holzbruch_pct:parseFloat(h)/100,Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.material)});}});
       if(!rows.length){alertEl.innerHTML='<div class="alert alert-err">Keine gültigen Probekörper.</div>';btn.disabled=false;return;}
       btn.textContent=`Speichert ${rows.length}…`;
       const saved=await Promise.all(rows.map(r=>spPost(LIST.material,r.sp)));
@@ -1133,7 +1134,7 @@ function editSC(spId){const item=allSC.find(s=>s._spId===spId);if(!item)return;e
 function openSCPanel(expId){document.getElementById('overlay').classList.add('open');document.getElementById('panel-sc').classList.add('open');activePanel='sc';editingSC=null;initSCForm(null);if(expId)document.getElementById('f-sc-expid').value=expId;}
 function addSCRow(){const i=scIdx++;const tr=document.createElement('tr');tr.id='sc-row-'+i;tr.innerHTML=`<td><input type="text" id="sp-${i}" style="width:80px"></td><td><input type="number" id="sl-sc-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="se-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="sg-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td class="mpa-cell" id="ss-${i}" style="white-space:nowrap">–</td><td><input type="text" id="sk-sc-${i}" style="width:100px"></td><td><button class="del-btn" onclick="removeSCRow(${i})">×</button></td>`;document.getElementById('sc-tbody').appendChild(tr);}
 function removeSCRow(i){document.getElementById('sc-row-'+i)?.remove();}
-function recalcSC(i){const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,sc=document.getElementById('ss-'+i);if(sc){const v=calcSC(leer,ein,end);sc.textContent=v!=null?v.toFixed(2)+'%':'–';}}
+function recalcSC(i){const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,sc=document.getElementById('ss-'+i);if(sc){const v=calcSC(leer,ein,end);sc.textContent=v!=null?fmtDec(v,2)+'%':'–';}}
 async function saveSC(){
   const alertEl=document.getElementById('sc-alert'),btn=document.getElementById('btn-save-sc');
   const expId=document.getElementById('f-sc-expid').value.trim().toUpperCase();
