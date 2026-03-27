@@ -433,6 +433,7 @@ function buildPlotConfig(rows){
 
 let _plotCharts=[];
 function plotRes(){
+  if(typeof Chart==='undefined'){alert('Chart.js konnte nicht geladen werden. Bitte Seite neu laden.');return;}
   const rows=currentResRows;
   if(!rows.length){alert('Keine Daten für den Plot vorhanden.');return;}
   const MAX_PER=10,MAX_CHARTS=5;
@@ -440,6 +441,7 @@ function plotRes(){
   _plotCharts.forEach(c=>c.destroy());_plotCharts=[];
   const chunks=[];for(let i=0;i<rows.length;i+=MAX_PER)chunks.push(rows.slice(i,i+MAX_PER));
   const body=document.getElementById('plot-body');body.innerHTML='';
+  const overlay=document.getElementById('plot-overlay');overlay.style.display='flex';overlay.classList.add('open');
   chunks.forEach((chunk,ci)=>{
     const wrap=document.createElement('div');wrap.className='plot-chart-wrap';
     if(chunks.length>1){const h=document.createElement('div');h.className='plot-chart-title';h.textContent=`Grafik ${ci+1} / ${chunks.length}`;wrap.appendChild(h);}
@@ -453,11 +455,11 @@ function plotRes(){
     const saveBtn=document.createElement('button');saveBtn.className='btn btn-primary btn-sm';saveBtn.textContent='📎 Speichern';saveBtn.onclick=()=>savePlotChart(ci);
     const st=document.createElement('span');st.id='plot-st-'+ci;st.style.cssText='font-size:12px;margin-left:8px';
     foot.append(dlBtn,lbl,sel,saveBtn,st);wrap.appendChild(foot);body.appendChild(wrap);
-    _plotCharts.push(new Chart(canvas,buildPlotConfig(chunk)));
+    try{_plotCharts.push(new Chart(canvas,buildPlotConfig(chunk)));}
+    catch(e){cw.innerHTML=`<p style="padding:20px;color:#c53030">Fehler beim Erstellen des Charts: ${esc(e.message)}</p>`;}
   });
-  document.getElementById('plot-overlay').classList.add('open');
 }
-function closePlot(){document.getElementById('plot-overlay').classList.remove('open');}
+function closePlot(){const o=document.getElementById('plot-overlay');o.classList.remove('open');o.style.display='none';}
 function downloadPlotChart(ci){
   const canvas=document.getElementById('plot-cv-'+ci);if(!canvas)return;
   const a=document.createElement('a');a.download=`ligaro_plot_${ci+1}_${new Date().toISOString().slice(0,10)}.png`;a.href=canvas.toDataURL('image/png');a.click();
