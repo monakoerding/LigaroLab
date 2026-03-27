@@ -6,6 +6,7 @@
   <title>LIGARO Lab</title>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.0/lib/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -126,6 +127,7 @@
       <label>bis</label><input type="date" id="res-date-to" onchange="filterRes()">
       <span class="row-count" id="res-count"></span>
       <button class="btn btn-secondary" onclick="exportExcel()">↓ Excel</button>
+      <button class="btn btn-secondary" onclick="plotRes()">📊 Plot</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -243,6 +245,17 @@
       <button class="panel-close" onclick="closeDetailDirect()">×</button>
     </div>
     <div class="modal-body" id="detail-body"><div class="state">Lade…</div></div>
+  </div>
+</div>
+
+<!-- Plot overlay -->
+<div class="plot-overlay" id="plot-overlay" onclick="if(event.target===this)closePlot()">
+  <div class="plot-modal">
+    <div class="plot-head">
+      <h2>Ergebnisse – Plot</h2>
+      <button class="panel-close" onclick="closePlot()">×</button>
+    </div>
+    <div class="plot-body" id="plot-body"></div>
   </div>
 </div>
 

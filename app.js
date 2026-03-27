@@ -328,14 +328,14 @@ function computeErgebnisse(){
       Experiment_ID:g.Experiment_ID,Lagerfolge_ID:g.Lagerfolge_ID,
       Titel:exp?.Projekttitel||'',Datum:exp?.Datum||'',
       Person:exp?.Person_Kuerzel||'',Projekt:exp?.Projekt_Kuerzel||'',
-      n,MWMpa:mean,StdAbw:Math.sqrt(variance),
+      n,MWMpa:mean,StdAbw:Math.sqrt(variance),mpaVals:g.mpaVals,
       MWHolzbruch:g.hbVals.length?(g.hbVals.reduce((a,b)=>a+b,0)/g.hbVals.length):null,
       ...sc,
     };
   });
 }
 
-let cachedErgebnisse=[];
+let cachedErgebnisse=[],currentResRows=[];
 function filterRes(){
   const q=document.getElementById('res-search').value.toLowerCase();
   const df=document.getElementById('res-date-from').value;
@@ -348,6 +348,7 @@ function filterRes(){
     (!q||`${r.Experiment_ID} ${r.Titel}`.toLowerCase().includes(q))
   );
   rows=applySort(rows,'res',['MWMpa','n','MWSC']);
+  currentResRows=rows;
   document.getElementById('res-count').textContent=rows.length+' Gruppen';
   document.getElementById('res-tbody').innerHTML=rows.length
     ?rows.map(r=>{
@@ -369,6 +370,111 @@ function filterRes(){
         </tr>`;
       }).join('')
     :'<tr><td colspan="12" class="state">Keine Daten.</td></tr>';
+}
+
+// ─── Plot ─────────────────────────────────────────────────────────────────
+const errDotsPlugin={
+  id:'errDots',
+  afterDatasetsDraw(chart){
+    const ctx=chart.ctx;
+    chart.data.datasets.forEach((ds,di)=>{
+      const meta=chart.getDatasetMeta(di);if(meta.hidden)return;
+      if(ds._errBars){
+        const yScale=chart.scales[ds.yAxisID||'y'];
+        ds._errBars.forEach((sd,i)=>{
+          if(sd==null||isNaN(sd)||sd===0)return;
+          const bar=meta.data[i];if(!bar)return;
+          const mean=ds.data[i];if(mean==null)return;
+          const x=bar.x,yTop=yScale.getPixelForValue(mean+sd),yBot=yScale.getPixelForValue(mean-sd),hw=4;
+          ctx.save();ctx.strokeStyle='#222';ctx.lineWidth=1.5;
+          ctx.beginPath();ctx.moveTo(x,yTop);ctx.lineTo(x,yBot);ctx.moveTo(x-hw,yTop);ctx.lineTo(x+hw,yTop);ctx.moveTo(x-hw,yBot);ctx.lineTo(x+hw,yBot);ctx.stroke();ctx.restore();
+        });
+      }
+      if(ds._dots){
+        const yScale=chart.scales[ds.yAxisID||'y'];
+        ds._dots.forEach((vals,i)=>{
+          const bar=meta.data[i];if(!bar||!vals)return;
+          vals.forEach(v=>{ctx.save();ctx.fillStyle='#000';ctx.beginPath();ctx.arc(bar.x,yScale.getPixelForValue(v),3,0,Math.PI*2);ctx.fill();ctx.restore();});
+        });
+      }
+    });
+  }
+};
+
+function buildPlotConfig(rows){
+  const labels=rows.map(r=>r.Experiment_ID+(r.Lagerfolge_ID?' | '+r.Lagerfolge_ID:''));
+  const mpaColors=rows.map(r=>(r.Lagerfolge_ID||'').toUpperCase().includes('WET')?'rgba(120,60,170,0.72)':'rgba(30,58,95,0.75)');
+  return{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'MPa (MW)',data:rows.map(r=>r.MWMpa),backgroundColor:mpaColors,yAxisID:'y',
+          _errBars:rows.map(r=>r.n>1?r.StdAbw:null),_dots:rows.map(r=>r.mpaVals||[]),order:2},
+        {label:'Holzbruch %',data:rows.map(r=>r.MWHolzbruch),backgroundColor:'rgba(255,153,51,0.72)',yAxisID:'y2',order:3},
+        {label:'SC %',data:rows.map(r=>r.MWSC),backgroundColor:'rgba(44,210,167,0.72)',yAxisID:'y2',order:4},
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'top',labels:{font:{size:12}}},
+        tooltip:{callbacks:{label(ctx){const v=ctx.parsed.y;if(v==null)return null;return`${ctx.dataset.label}: ${fmtDec(v,3)}`;}}}
+      },
+      scales:{
+        x:{ticks:{font:{size:10},maxRotation:45}},
+        y:{type:'linear',position:'left',title:{display:true,text:'MPa',font:{size:12}}},
+        y2:{type:'linear',position:'right',title:{display:true,text:'%',font:{size:12}},grid:{drawOnChartArea:false}},
+      }
+    },
+    plugins:[errDotsPlugin],
+  };
+}
+
+let _plotCharts=[];
+function plotRes(){
+  const rows=currentResRows;
+  if(!rows.length){alert('Keine Daten für den Plot vorhanden.');return;}
+  const MAX_PER=10,MAX_CHARTS=5;
+  if(rows.length>MAX_PER*MAX_CHARTS){alert(`Zu viele Einträge (${rows.length}) für den Plot. Maximal ${MAX_PER*MAX_CHARTS}. Bitte Filter einschränken.`);return;}
+  _plotCharts.forEach(c=>c.destroy());_plotCharts=[];
+  const chunks=[];for(let i=0;i<rows.length;i+=MAX_PER)chunks.push(rows.slice(i,i+MAX_PER));
+  const body=document.getElementById('plot-body');body.innerHTML='';
+  chunks.forEach((chunk,ci)=>{
+    const wrap=document.createElement('div');wrap.className='plot-chart-wrap';
+    if(chunks.length>1){const h=document.createElement('div');h.className='plot-chart-title';h.textContent=`Grafik ${ci+1} / ${chunks.length}`;wrap.appendChild(h);}
+    const cw=document.createElement('div');cw.style.cssText='position:relative;height:420px';
+    const canvas=document.createElement('canvas');canvas.id='plot-cv-'+ci;cw.appendChild(canvas);wrap.appendChild(cw);
+    const foot=document.createElement('div');foot.className='plot-chart-foot';
+    const dlBtn=document.createElement('button');dlBtn.className='btn btn-secondary btn-sm';dlBtn.textContent='↓ PNG';dlBtn.onclick=()=>downloadPlotChart(ci);
+    const lbl=document.createElement('span');lbl.style.cssText='font-size:13px;margin-left:10px';lbl.textContent='Als Anhang zu:';
+    const sel=document.createElement('select');sel.id='plot-sel-'+ci;sel.style.cssText='margin:0 6px;min-width:140px';
+    [...new Set(chunk.map(r=>r.Experiment_ID))].forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;sel.appendChild(o);});
+    const saveBtn=document.createElement('button');saveBtn.className='btn btn-primary btn-sm';saveBtn.textContent='📎 Speichern';saveBtn.onclick=()=>savePlotChart(ci);
+    const st=document.createElement('span');st.id='plot-st-'+ci;st.style.cssText='font-size:12px;margin-left:8px';
+    foot.append(dlBtn,lbl,sel,saveBtn,st);wrap.appendChild(foot);body.appendChild(wrap);
+    _plotCharts.push(new Chart(canvas,buildPlotConfig(chunk)));
+  });
+  document.getElementById('plot-overlay').classList.add('open');
+}
+function closePlot(){document.getElementById('plot-overlay').classList.remove('open');}
+function downloadPlotChart(ci){
+  const canvas=document.getElementById('plot-cv-'+ci);if(!canvas)return;
+  const a=document.createElement('a');a.download=`ligaro_plot_${ci+1}_${new Date().toISOString().slice(0,10)}.png`;a.href=canvas.toDataURL('image/png');a.click();
+}
+async function savePlotChart(ci){
+  const canvas=document.getElementById('plot-cv-'+ci),sel=document.getElementById('plot-sel-'+ci),st=document.getElementById('plot-st-'+ci);
+  if(!canvas||!sel)return;
+  const expId=sel.value,exp=allExp.find(e=>e.Experiment_ID===expId);
+  if(!exp){st.textContent='Experiment nicht gefunden.';return;}
+  st.textContent='Speichert…';st.style.color='';
+  try{
+    const blob=await new Promise(res=>canvas.toBlob(res,'image/png'));
+    const buf=await blob.arrayBuffer();
+    const fname=`plot_${expId}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
+    await spAttach(LIST.experimente,exp._spId,fname,buf);
+    st.textContent='✓ Gespeichert!';st.style.color='#1a6b3c';setTimeout(()=>{st.textContent='';st.style.color='';},3000);
+  }catch(e){st.textContent='Fehler: '+e.message;st.style.color='#c53030';}
 }
 
 function exportExcel(){
