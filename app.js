@@ -299,8 +299,9 @@ function computeErgebnisse(){
     const mpa=parseFloat(calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N));
     if(isNaN(mpa))return;
     const key=`${m.Experiment_ID}||${m.Lagerfolge_ID||''}`;
-    if(!groups[key])groups[key]={Experiment_ID:m.Experiment_ID,Lagerfolge_ID:m.Lagerfolge_ID||'',mpaVals:[],hbVals:[]};
+    if(!groups[key])groups[key]={Experiment_ID:m.Experiment_ID,Lagerfolge_ID:m.Lagerfolge_ID||'',mpaVals:[],hbVals:[],mpaHbPairs:[]};
     groups[key].mpaVals.push(mpa);
+    groups[key].mpaHbPairs.push({mpa,hb:m.Holzbruch_pct!=null?m.Holzbruch_pct*100:null});
     if(m.Holzbruch_pct!=null)groups[key].hbVals.push(m.Holzbruch_pct*100);
   });
   // SC pro Experiment (unabhängig von Lagerfolge)
@@ -328,7 +329,7 @@ function computeErgebnisse(){
       Experiment_ID:g.Experiment_ID,Lagerfolge_ID:g.Lagerfolge_ID,
       Titel:exp?.Projekttitel||'',Datum:exp?.Datum||'',
       Person:exp?.Person_Kuerzel||'',Projekt:exp?.Projekt_Kuerzel||'',
-      n,MWMpa:mean,StdAbw:Math.sqrt(variance),mpaVals:g.mpaVals,
+      n,MWMpa:mean,StdAbw:Math.sqrt(variance),mpaVals:g.mpaVals,mpaHbPairs:g.mpaHbPairs,
       MWHolzbruch:g.hbVals.length?(g.hbVals.reduce((a,b)=>a+b,0)/g.hbVals.length):null,
       ...sc,
     };
@@ -416,6 +417,15 @@ function confirmExcelFromSel(){
 }
 
 // ─── Plot ─────────────────────────────────────────────────────────────────
+let _plotTipEl=null;
+function getPlotTip(){
+  if(!_plotTipEl){
+    _plotTipEl=document.createElement('div');
+    _plotTipEl.style.cssText='position:fixed;background:rgba(0,0,0,0.78);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;pointer-events:none;display:none;z-index:9999;white-space:nowrap';
+    document.body.appendChild(_plotTipEl);
+  }
+  return _plotTipEl;
+}
 const LAFO_COLORS=[
   'rgba(30,58,138,0.78)','rgba(109,40,217,0.78)','rgba(5,150,105,0.78)',
   'rgba(220,38,38,0.78)','rgba(217,119,6,0.78)','rgba(37,99,235,0.78)',
@@ -425,6 +435,7 @@ const errDotsPlugin={
   id:'errDots',
   afterDatasetsDraw(chart){
     const ctx=chart.ctx;
+    chart._dotHitAreas=[];
     chart.data.datasets.forEach((ds,di)=>{
       const meta=chart.getDatasetMeta(di);if(meta.hidden)return;
       if(ds._errBars){
@@ -442,7 +453,19 @@ const errDotsPlugin={
         const yScale=chart.scales[ds.yAxisID||'y'];
         ds._dots.forEach((vals,i)=>{
           const bar=meta.data[i];if(!bar||!vals)return;
-          vals.forEach(v=>{ctx.save();ctx.fillStyle='#000';ctx.beginPath();ctx.arc(bar.x,yScale.getPixelForValue(v),3,0,Math.PI*2);ctx.fill();ctx.restore();});
+          const hbArr=ds._hbPerDot?.[i];
+          vals.forEach((v,vi)=>{
+            const px=bar.x,py=yScale.getPixelForValue(v);
+            ctx.save();ctx.fillStyle='#000';ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.restore();
+            chart._dotHitAreas.push({x:px,y:py,r:7,mpa:v});
+            const hb=hbArr?.[vi];
+            if(hb!=null){
+              ctx.save();
+              ctx.font='bold 9px sans-serif';ctx.fillStyle='#444';ctx.textAlign='left';ctx.textBaseline='middle';
+              ctx.fillText(Math.round(hb)+'%HB',px+6,py);
+              ctx.restore();
+            }
+          });
         });
       }
     });
@@ -467,17 +490,8 @@ function buildPlotConfig(rows, labelMap, plotTitle){
     const data=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?r.MWMpa:null;});
     const errBars=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r&&r.n>1?r.StdAbw:null;});
     const dots=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?r.mpaVals:[];});
-    datasets.push({label:`MPa (MW) ${kurzform}`,data,backgroundColor:color,yAxisID:'y',order:2,_errBars:errBars,_dots:dots});
-  });
-  // Holzbruch per LAFO (only if any data)
-  lafoIds.forEach((lafoId,li)=>{
-    const lafoObj=lagerfolgen.find(l=>l.Lagerfolge_ID===lafoId);
-    const kurzform=lafoObj?.Kurzform||(lafoId||'–');
-    const data=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?.MWHolzbruch??null;});
-    if(data.some(v=>v!=null)){
-      const base=LAFO_COLORS[li%LAFO_COLORS.length];
-      datasets.push({label:`Holzbruch % ${kurzform}`,data,backgroundColor:base.replace('0.78','0.35'),yAxisID:'y2',order:3});
-    }
+    const hbPerDot=expIds.map(eid=>{const r=rowByKey[eid+'||'+lafoId];return r?(r.mpaHbPairs||[]).map(p=>p.hb):[];});
+    datasets.push({label:`MPa (MW) ${kurzform}`,data,backgroundColor:color,yAxisID:'y',order:2,_errBars:errBars,_dots:dots,_hbPerDot:hbPerDot});
   });
   // SC: one value per experiment (independent of LAFO), only if any data
   const hasSC=rows.some(r=>r.MWSC!=null);
@@ -486,6 +500,11 @@ function buildPlotConfig(rows, labelMap, plotTitle){
     rows.forEach(r=>{if(r.MWSC!=null&&scByExp[r.Experiment_ID]==null)scByExp[r.Experiment_ID]=r.MWSC;});
     datasets.push({label:'SC %',data:expIds.map(id=>scByExp[id]??null),backgroundColor:'rgba(44,210,167,0.72)',yAxisID:'y2',order:4});
   }
+  const scales={
+    x:{ticks:{font:{size:10},maxRotation:45}},
+    y:{type:'linear',position:'left',title:{display:true,text:'MPa',font:{size:12}}},
+  };
+  if(hasSC)scales.y2={type:'linear',position:'right',title:{display:true,text:'%',font:{size:12}},grid:{drawOnChartArea:false}};
   return{
     type:'bar',
     data:{labels,datasets},
@@ -496,11 +515,7 @@ function buildPlotConfig(rows, labelMap, plotTitle){
         title:{display:!!(plotTitle&&plotTitle.trim()),text:plotTitle||''},
         tooltip:{callbacks:{label(ctx){const v=ctx.parsed.y;if(v==null)return null;return`${ctx.dataset.label}: ${fmtDec(v,3)}`;}}}
       },
-      scales:{
-        x:{ticks:{font:{size:10},maxRotation:45}},
-        y:{type:'linear',position:'left',title:{display:true,text:'MPa',font:{size:12}}},
-        y2:{type:'linear',position:'right',title:{display:true,text:'%',font:{size:12}},grid:{drawOnChartArea:false}},
-      }
+      scales,
     },
     plugins:[errDotsPlugin],
   };
@@ -526,7 +541,11 @@ function openPlotWithRows(rows){
   // reset side-panel inputs
   const titleInput=document.getElementById('plot-title-input');if(titleInput)titleInput.value='';
   const labelDiv=document.getElementById('plot-label-inputs');if(labelDiv){
-    labelDiv.innerHTML=uniqueExpIds.map(id=>`<div style="margin-bottom:6px"><div class="label-id">${esc(id)}</div><input type="text" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div>`).join('');
+    labelDiv.innerHTML=uniqueExpIds.map(id=>{
+      const exp=allExp.find(e=>e.Experiment_ID===id);
+      const titel=exp?.Projekttitel||'';
+      return`<div style="margin-bottom:6px"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(titel)}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div>`;
+    }).join('');
   }
   expChunks.forEach((expIds,ci)=>{
     const chunk=rows.filter(r=>expIds.includes(r.Experiment_ID));
@@ -546,6 +565,15 @@ function openPlotWithRows(rows){
       const chart=new Chart(canvas,buildPlotConfig(chunk,getLabelMap(),''));
       chart._expIds=expIds;
       _plotCharts.push(chart);
+      canvas.addEventListener('mousemove',e=>{
+        const rect=canvas.getBoundingClientRect();
+        const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+        const tip=getPlotTip();
+        const hit=(chart._dotHitAreas||[]).find(d=>Math.hypot(d.x-mx,d.y-my)<d.r);
+        if(hit){tip.textContent=fmtDec(hit.mpa,3)+' MPa';tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY-10)+'px';}
+        else{tip.style.display='none';}
+      });
+      canvas.addEventListener('mouseleave',()=>getPlotTip().style.display='none');
     }catch(e){cw.innerHTML=`<p style="padding:20px;color:#c53030">Fehler beim Erstellen des Charts: ${esc(e.message)}</p>`;}
   });
 }
@@ -571,7 +599,7 @@ function updatePlotTitle(val){
     chart.update();
   });
 }
-function closePlot(){const o=document.getElementById('plot-overlay');o.classList.remove('open');o.style.display='none';}
+function closePlot(){const o=document.getElementById('plot-overlay');o.classList.remove('open');o.style.display='none';if(_plotTipEl)_plotTipEl.style.display='none';}
 function downloadPlotChart(ci){
   const canvas=document.getElementById('plot-cv-'+ci);if(!canvas)return;
   const a=document.createElement('a');a.download=`ligaro_plot_${ci+1}_${new Date().toISOString().slice(0,10)}.png`;a.href=canvas.toDataURL('image/png');a.click();
