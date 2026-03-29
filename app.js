@@ -405,13 +405,13 @@ function updateSelCount(){
 }
 function confirmPlotFromSel(){
   if(!plotSelIds.size){alert('Bitte mindestens ein Experiment auswählen.');return;}
-  const rows=currentResRows.filter(r=>plotSelIds.has(r.Experiment_ID));
+  const rows=cachedErgebnisse.filter(r=>plotSelIds.has(r.Experiment_ID));
   exitPlotSel();
   openPlotWithRows(rows);
 }
 function confirmExcelFromSel(){
   if(!plotSelIds.size){alert('Bitte mindestens ein Experiment auswählen.');return;}
-  const rows=currentResRows.filter(r=>plotSelIds.has(r.Experiment_ID));
+  const rows=cachedErgebnisse.filter(r=>plotSelIds.has(r.Experiment_ID));
   exitPlotSel();
   doExportExcel(rows);
 }
