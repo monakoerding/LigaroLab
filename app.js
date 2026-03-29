@@ -457,14 +457,17 @@ const errDotsPlugin={
           vals.forEach((v,vi)=>{
             const px=bar.x,py=yScale.getPixelForValue(v);
             const hb=hbArr?.[vi];
-            let dotColor='#000';
+            // fill: green→yellow→red traffic-light gradient based on HB%
+            let fillColor='#888';
             if(hb!=null){
-              if(hb===0)dotColor='#000';
-              else if(hb<50)dotColor='#6b3a2a';
-              else if(hb<100)dotColor='#b35a00';
-              else dotColor='#ff8c00';
+              const t=Math.max(0,Math.min(1,hb/100));
+              let r,g,b;
+              if(t<=0.5){const s=t*2;r=Math.round(34+(234-34)*s);g=Math.round(197+(179-197)*s);b=Math.round(94+(8-94)*s);}
+              else{const s=(t-0.5)*2;r=Math.round(234+(220-234)*s);g=Math.round(179+(38-179)*s);b=Math.round(8+(38-8)*s);}
+              fillColor=`rgb(${r},${g},${b})`;
             }
-            ctx.save();ctx.fillStyle=dotColor;ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.restore();
+            ctx.save();ctx.fillStyle=fillColor;ctx.beginPath();ctx.arc(px,py,4,0,Math.PI*2);ctx.fill();
+            ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.stroke();ctx.restore();
             chart._dotHitAreas.push({x:px,y:py,r:7,mpa:v,hb:hb??null});
           });
         });
