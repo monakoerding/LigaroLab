@@ -421,7 +421,7 @@ let _plotTipEl=null;
 function getPlotTip(){
   if(!_plotTipEl){
     _plotTipEl=document.createElement('div');
-    _plotTipEl.style.cssText='position:fixed;background:rgba(0,0,0,0.78);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;pointer-events:none;display:none;z-index:9999;white-space:nowrap';
+    _plotTipEl.style.cssText='position:fixed;background:rgba(0,0,0,0.78);color:#fff;padding:4px 10px;border-radius:4px;font-size:12px;pointer-events:none;display:none;z-index:9999;white-space:pre-line;line-height:1.5';
     document.body.appendChild(_plotTipEl);
   }
   return _plotTipEl;
@@ -456,15 +456,18 @@ const errDotsPlugin={
           const hbArr=ds._hbPerDot?.[i];
           vals.forEach((v,vi)=>{
             const px=bar.x,py=yScale.getPixelForValue(v);
-            ctx.save();ctx.fillStyle='#000';ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.restore();
-            chart._dotHitAreas.push({x:px,y:py,r:7,mpa:v});
             const hb=hbArr?.[vi];
+            // colored ring: 0% HB=white, 100% HB=orange (255,140,0)
             if(hb!=null){
+              const t=Math.max(0,Math.min(1,hb/100));
               ctx.save();
-              ctx.font='bold 9px sans-serif';ctx.fillStyle='#444';ctx.textAlign='left';ctx.textBaseline='middle';
-              ctx.fillText(Math.round(hb)+'%HB',px+6,py);
+              ctx.strokeStyle=`rgb(255,${Math.round(255*(1-t)+140*t)},${Math.round(255*(1-t))})`;
+              ctx.lineWidth=2.5;
+              ctx.beginPath();ctx.arc(px,py,5,0,Math.PI*2);ctx.stroke();
               ctx.restore();
             }
+            ctx.save();ctx.fillStyle='#000';ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.restore();
+            chart._dotHitAreas.push({x:px,y:py,r:7,mpa:v,hb:hb??null});
           });
         });
       }
@@ -570,7 +573,11 @@ function openPlotWithRows(rows){
         const mx=e.clientX-rect.left,my=e.clientY-rect.top;
         const tip=getPlotTip();
         const hit=(chart._dotHitAreas||[]).find(d=>Math.hypot(d.x-mx,d.y-my)<d.r);
-        if(hit){tip.textContent=fmtDec(hit.mpa,3)+' MPa';tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY-10)+'px';}
+        if(hit){
+          const lines=[fmtDec(hit.mpa,3)+' MPa'];
+          if(hit.hb!=null)lines.push(Math.round(hit.hb)+' % Holzbruch');
+          tip.textContent=lines.join('\n');tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY-10)+'px';
+        }
         else{tip.style.display='none';}
       });
       canvas.addEventListener('mouseleave',()=>getPlotTip().style.display='none');
@@ -912,25 +919,53 @@ async function openDetail(event,expId){
     const mats=allMat.filter(m=>m.Experiment_ID===expId);
     const exp=allExp.find(e=>e.Experiment_ID===expId);
     const attachments=exp?await spGetAttachments(LIST.experimente,exp._spId).catch(()=>[]):[];
+    const eid=esc(expId);
     let html='';
+    // ── Experiment-Metadaten ──
+    if(exp){
+      const fld=(field,label,type='text',extra='')=>`<div class="field-row" style="gap:6px;margin-bottom:6px"><div class="field" style="margin:0;flex:1"><label style="font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:2px">${label}</label><input type="${type}" value="${esc(exp[field]||'')}" style="width:100%;padding:5px 8px;border:1px solid #d0d5dd;border-radius:5px;font-size:13px" onblur="saveDetailExpField('${eid}','${field}',this)" onkeydown="if(event.key==='Enter')this.blur()" ${extra}></div></div>`;
+      html+='<div class="modal-section"><h3>Experiment-Daten</h3>';
+      html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">`;
+      html+=`<div><div class="extra-label">Projekttitel</div><input type="text" value="${esc(exp.Projekttitel||'')}" style="width:100%;padding:5px 8px;border:1px solid #d0d5dd;border-radius:5px;font-size:13px" onblur="saveDetailExpField('${eid}','Projekttitel',this)" onkeydown="if(event.key==='Enter')this.blur()"></div>`;
+      html+=`<div><div class="extra-label">Projekt</div><input type="text" value="${esc(exp.Projekt_Kuerzel||'')}" style="width:100%;padding:5px 8px;border:1px solid #d0d5dd;border-radius:5px;font-size:13px" onblur="saveDetailExpField('${eid}','Projekt_Kuerzel',this)" onkeydown="if(event.key==='Enter')this.blur()"></div>`;
+      html+=`<div><div class="extra-label">Datum</div><input type="date" value="${exp.Datum?exp.Datum.slice(0,10):''}" style="width:100%;padding:5px 8px;border:1px solid #d0d5dd;border-radius:5px;font-size:13px" onblur="saveDetailExpField('${eid}','Datum',this)" onchange="saveDetailExpField('${eid}','Datum',this)"></div>`;
+      html+=`<div><div class="extra-label">Person</div><input type="text" value="${esc(exp.Person_Kuerzel||'')}" style="width:100%;padding:5px 8px;border:1px solid #d0d5dd;border-radius:5px;font-size:13px" onblur="saveDetailExpField('${eid}','Person_Kuerzel',this)" onkeydown="if(event.key==='Enter')this.blur()"></div>`;
+      html+=`</div></div>`;
+    }
+    // ── Notizen ──
+    if(exp){
+      html+='<div class="modal-section"><h3>Notizen</h3>';
+      ['Beschreibung','Beobachtungen','Kommentar'].forEach(f=>{
+        html+=`<div class="extra-label" style="margin-top:6px">${f}</div><textarea style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #d0d5dd;border-radius:5px;min-height:52px;resize:vertical;box-sizing:border-box;font-family:inherit" onblur="saveDetailExpField('${eid}','${f}',this)">${esc(exp[f]||'')}</textarea>`;
+      });
+      html+='</div>';
+    }
+    // ── Zusammensetzung ──
     html+='<div class="modal-section"><h3>Zusammensetzung</h3>';
     if(kompsNote)html+=kompsNote;
     html+='<table class="modal-table"><thead><tr><th>Komponente</th><th>Hersteller</th><th style="text-align:right">Menge</th><th>Einheit</th><th>Rolle</th><th></th></tr></thead><tbody id="komp-detail-tbody">';
     if(komps.length)komps.forEach(k=>{html+=dKompRow(k,expId);});
     else html+=`<tr id="komp-empty-row"><td colspan="6" class="modal-empty">Keine Komponenten eingetragen.</td></tr>`;
     html+='</tbody></table>';
-    html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dKompAdd('${esc(expId)}')">+ Komponente</button>`;
+    html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dKompAdd('${eid}')">+ Komponente</button>`;
     html+='</div>';
+    // ── Materialprüfung ──
     html+='<div class="modal-section"><h3>Materialprüfung</h3>';
-    if(mats.length){html+='<table class="modal-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">Holzbruch %</th><th style="text-align:right">L × B</th><th style="text-align:right">Kraft (N)</th><th>Kommentar</th></tr></thead><tbody>';mats.forEach(m=>{const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);const style=mpa?mpaStyle(mpa,m.Lagerfolge_ID):'';const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';const lxb=(m.Laenge_mm!=null&&m.Breite_mm!=null)?`${m.Laenge_mm} × ${m.Breite_mm}`:'';html+=`<tr><td>${esc(m.Lagerfolge_ID)}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa!=null?String(mpa).replace('.',','):''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${lxb}</td><td style="text-align:right">${m.Kraft_N??''}</td><td>${esc(m.Kommentar)}</td></tr>`;});html+='</tbody></table>';}
-    else html+='<p class="modal-empty">Keine Messungen vorhanden.</p>';
+    html+='<table class="modal-table" id="mat-detail-table"><thead><tr><th>Protokoll</th><th style="text-align:right">MPa</th><th style="text-align:right">HB%</th><th style="text-align:right">Länge</th><th style="text-align:right">Breite</th><th style="text-align:right">Kraft(N)</th><th>Kommentar</th><th></th></tr></thead><tbody id="mat-detail-tbody">';
+    if(mats.length)mats.forEach(m=>{html+=dMatRow(m);});
+    else html+=`<tr id="mat-empty-row"><td colspan="8" class="modal-empty">Keine Messungen vorhanden.</td></tr>`;
+    html+='</tbody></table>';
+    html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dMatAdd('${eid}')">+ Messung</button>`;
     html+='</div>';
+    // ── Feststoffgehalt ──
     const scs=allSC.filter(s=>s.Experiment_ID===expId);
     html+='<div class="modal-section"><h3>Feststoffgehalt</h3>';
-    if(scs.length){html+='<table class="modal-table"><thead><tr><th>Probe</th><th style="text-align:right">Leergewicht (g)</th><th style="text-align:right">Einwaage (g)</th><th style="text-align:right">Endgewicht (g)</th><th style="text-align:right">SC%</th><th>Kommentar</th><th></th></tr></thead><tbody>';scs.forEach(s=>{const sc=calcSC(s.Leergewicht_g,s.Einwaage_g,s.Endgewicht_g);html+=`<tr><td>${esc(s.Probe)}</td><td style="text-align:right">${s.Leergewicht_g??''}</td><td style="text-align:right">${s.Einwaage_g??''}</td><td style="text-align:right">${s.Endgewicht_g??''}</td><td style="text-align:right;font-weight:600">${sc!=null?fmtDec(sc,2)+'%':''}</td><td style="font-size:12px;color:#666">${esc(s.Kommentar)}</td><td><button class="btn-icon" title="Bearbeiten" onclick="editSC(${s._spId});closeDetailDirect()">✏️</button></td></tr>`;});html+='</tbody></table>';}
-    else html+='<p class="modal-empty">Keine SC-Messungen vorhanden. <button class="btn btn-secondary btn-sm" onclick="openSCPanel(\''+esc(expId)+'\');closeDetailDirect()">SC erfassen</button></p>';
+    html+='<table class="modal-table" id="sc-detail-table"><thead><tr><th>Probe</th><th style="text-align:right">Leer(g)</th><th style="text-align:right">Einwaage(g)</th><th style="text-align:right">End(g)</th><th style="text-align:right">SC%</th><th>Kommentar</th><th></th></tr></thead><tbody id="sc-detail-tbody">';
+    if(scs.length)scs.forEach(s=>{html+=dScRow(s);});
+    else html+=`<tr id="sc-empty-row"><td colspan="7" class="modal-empty">Keine SC-Messungen vorhanden.</td></tr>`;
+    html+='</tbody></table>';
+    html+=`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="dScAdd('${eid}')">+ SC-Messung</button>`;
     html+='</div>';
-    if(exp&&(exp.Beschreibung||exp.Beobachtungen||exp.Kommentar)){html+='<div class="modal-section"><h3>Notizen</h3>';if(exp.Beschreibung)html+=`<div class="extra-label">Beschreibung</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beschreibung)}</p>`;if(exp.Beobachtungen)html+=`<div class="extra-label">Beobachtungen</div><p style="font-size:13px;margin-bottom:9px;white-space:pre-wrap">${esc(exp.Beobachtungen)}</p>`;if(exp.Kommentar)html+=`<div class="extra-label">Kommentar</div><p style="font-size:13px;white-space:pre-wrap">${esc(exp.Kommentar)}</p>`;html+='</div>';}
     if(exp){
       html+='<div class="modal-section" id="attach-section"><h3>Anhänge</h3>';
       html+=renderAttachmentList(attachments,LIST.experimente,exp._spId);
@@ -942,6 +977,144 @@ async function openDetail(event,expId){
 }
 function closeDetail(e){if(e.target===document.getElementById('detail-overlay'))closeDetailDirect();}
 function closeDetailDirect(){document.getElementById('detail-overlay').classList.remove('open');}
+
+async function saveDetailExpField(expId,field,inputEl){
+  const exp=allExp.find(e=>e.Experiment_ID===expId);if(!exp)return;
+  const val=inputEl.value.trim();
+  const current=(exp[field]||'');
+  if(val===current)return;
+  try{
+    const sp={};sp[FIELDS.experimente[field]]=val||null;
+    await spPatch(LIST.experimente,exp._spId,sp);
+    exp[field]=val;
+    if(field==='Projekttitel')document.getElementById('detail-title').textContent=expId+(val?' – '+val:'');
+    cachedErgebnisse=computeErgebnisse();filterRes();
+    inputEl.style.borderColor='#22c55e';setTimeout(()=>{inputEl.style.borderColor='';},900);
+  }catch(e){alert('Fehler: '+e.message);inputEl.value=current;}
+}
+
+// ─── Detail modal: Materialprüfung inline ──────────────────────────────────
+function dMatRow(m){
+  const mpa=calcMpa(m.Laenge_mm,m.Breite_mm,m.Kraft_N);
+  const style=mpa?mpaStyle(parseFloat(mpa).toFixed(2),m.Lagerfolge_ID):'';
+  const hb=m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100)+'%':'';
+  return`<tr id="mat-drow-${m._spId}"><td>${esc(m.Lagerfolge_ID||'')}</td><td style="text-align:right"><span class="mpa-chip" style="${style}">${mpa!=null?fmtDec(parseFloat(mpa),3):''}</span></td><td style="text-align:right">${hb}</td><td style="text-align:right">${m.Laenge_mm??''}</td><td style="text-align:right">${m.Breite_mm??''}</td><td style="text-align:right">${m.Kraft_N??''}</td><td style="font-size:12px">${esc(m.Kommentar||'')}</td><td style="white-space:nowrap"><button class="btn-icon" onclick="dMatEdit(${m._spId})">✏️</button><button class="btn-icon" onclick="dMatDel(${m._spId})">🗑️</button></td></tr>`;
+}
+function dMatEditRow(sid,lafo,l,b,k,hb,komm){
+  const is=w=>`style="width:${w};padding:3px 5px;border:1px solid #d0d5dd;border-radius:4px;font-size:12px"`;
+  return`<td><input id="md-lafo-${sid}" value="${esc(lafo)}" ${is('70px')}></td><td><span id="md-mpa-${sid}" style="font-size:12px;color:#888"></span></td><td><input type="number" id="md-hb-${sid}" value="${hb}" min="0" max="100" step="1" ${is('44px')}></td><td><input type="number" id="md-l-${sid}" value="${l}" step="0.1" oninput="dMatCalcMpa('${sid}')" ${is('54px')}></td><td><input type="number" id="md-b-${sid}" value="${b}" step="0.1" oninput="dMatCalcMpa('${sid}')" ${is('54px')}></td><td><input type="number" id="md-k-${sid}" value="${k}" step="1" oninput="dMatCalcMpa('${sid}')" ${is('60px')}></td><td><input type="text" id="md-km-${sid}" value="${esc(komm)}" ${is('80px')}></td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="dMatSave('${sid}')">💾</button> <button class="btn btn-secondary btn-sm" onclick="dMatCancel('${sid}')">✕</button></td>`;
+}
+function dMatCalcMpa(sid){
+  const l=document.getElementById('md-l-'+sid)?.value,b=document.getElementById('md-b-'+sid)?.value,k=document.getElementById('md-k-'+sid)?.value;
+  const mpa=calcMpa(l,b,k);
+  const el=document.getElementById('md-mpa-'+sid);if(el)el.textContent=mpa!=null?fmtDec(parseFloat(mpa),3)+' MPa':'';
+}
+function dMatEdit(spId){
+  const m=allMat.find(x=>x._spId===spId);if(!m)return;
+  const row=document.getElementById('mat-drow-'+spId);if(!row)return;
+  row.innerHTML=dMatEditRow(spId,m.Lagerfolge_ID||'',m.Laenge_mm??'',m.Breite_mm??'',m.Kraft_N??'',m.Holzbruch_pct!=null?Math.round(m.Holzbruch_pct*100):'',m.Kommentar||'');
+  dMatCalcMpa(spId);
+}
+function dMatCancel(sid){
+  const m=allMat.find(x=>x._spId===sid);
+  const row=document.getElementById('mat-drow-'+sid);if(!row)return;
+  if(m)row.outerHTML=dMatRow(m); else row.remove();
+}
+async function dMatSave(sid){
+  const row=document.getElementById('mat-drow-'+sid);if(!row)return;
+  const m=allMat.find(x=>x._spId===sid);
+  const expId=m?m.Experiment_ID:row.dataset.expid;
+  const lafo=(document.getElementById('md-lafo-'+sid)?.value||'').trim();
+  const l=document.getElementById('md-l-'+sid)?.value;
+  const b=document.getElementById('md-b-'+sid)?.value;
+  const k=document.getElementById('md-k-'+sid)?.value;
+  const hbRaw=document.getElementById('md-hb-'+sid)?.value;
+  const komm=(document.getElementById('md-km-'+sid)?.value||'').trim();
+  const int={Experiment_ID:expId,Lagerfolge_ID:lafo,Laenge_mm:l!==''?parseFloat(l):null,Breite_mm:b!==''?parseFloat(b):null,Kraft_N:k!==''?parseFloat(k):null,Holzbruch_pct:hbRaw!==''?parseFloat(hbRaw)/100:null,Kommentar:komm,Maschine:m?.Maschine||null};
+  try{
+    if(m){
+      await spPatch(LIST.material,sid,mapTo(int,FIELDS.material));Object.assign(m,int);
+      row.outerHTML=dMatRow(m);
+    } else {
+      const saved=await spPost(LIST.material,mapTo(int,FIELDS.material));
+      const newM={...int,_spId:saved.d.Id};allMat.unshift(newM);
+      row.outerHTML=dMatRow(newM);
+    }
+    computeMpaRanges();cachedErgebnisse=computeErgebnisse();filterMat();filterRes();
+  }catch(e){alert('Fehler: '+e.message);}
+}
+async function dMatDel(spId){
+  if(!confirm('Messung löschen?'))return;
+  try{
+    await spDelete(LIST.material,spId);
+    allMat=allMat.filter(x=>x._spId!==spId);
+    computeMpaRanges();cachedErgebnisse=computeErgebnisse();filterMat();filterRes();
+    document.getElementById('mat-drow-'+spId)?.remove();
+    const tbody=document.getElementById('mat-detail-tbody');
+    if(tbody&&!tbody.querySelector('tr[id^="mat-drow-"]'))tbody.innerHTML='<tr id="mat-empty-row"><td colspan="8" class="modal-empty">Keine Messungen vorhanden.</td></tr>';
+  }catch(e){alert('Fehler: '+e.message);}
+}
+function dMatAdd(expId){
+  document.getElementById('mat-empty-row')?.remove();
+  const tbody=document.getElementById('mat-detail-tbody');if(!tbody)return;
+  const sid='new'+Date.now();
+  const tr=document.createElement('tr');tr.id='mat-drow-'+sid;tr.dataset.expid=expId;
+  tr.innerHTML=dMatEditRow(sid,'','','','','','');
+  tbody.appendChild(tr);document.getElementById('md-lafo-'+sid)?.focus();
+}
+
+// ─── Detail modal: Feststoffgehalt inline ──────────────────────────────────
+function dScRow(s){
+  const sc=calcSC(s.Leergewicht_g,s.Einwaage_g,s.Endgewicht_g);
+  return`<tr id="sc-drow-${s._spId}"><td>${esc(s.Probe||'')}</td><td style="text-align:right">${s.Leergewicht_g??''}</td><td style="text-align:right">${s.Einwaage_g??''}</td><td style="text-align:right">${s.Endgewicht_g??''}</td><td style="text-align:right;font-weight:600">${sc!=null?fmtDec(sc,2)+'%':''}</td><td style="font-size:12px">${esc(s.Kommentar||'')}</td><td style="white-space:nowrap"><button class="btn-icon" onclick="dScEdit(${s._spId})">✏️</button><button class="btn-icon" onclick="dScDel(${s._spId})">🗑️</button></td></tr>`;
+}
+function dScEditRow(sid,probe,leer,ein,end,komm){
+  const is=w=>`style="width:${w};padding:3px 5px;border:1px solid #d0d5dd;border-radius:4px;font-size:12px"`;
+  return`<td><input id="sd-p-${sid}" value="${esc(probe)}" ${is('60px')}></td><td><input type="number" id="sd-l-${sid}" value="${leer}" step="0.001" ${is('68px')}></td><td><input type="number" id="sd-e-${sid}" value="${ein}" step="0.001" ${is('68px')}></td><td><input type="number" id="sd-en-${sid}" value="${end}" step="0.001" ${is('68px')}></td><td></td><td><input type="text" id="sd-k-${sid}" value="${esc(komm)}" ${is('80px')}></td><td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="dScSave('${sid}')">💾</button> <button class="btn btn-secondary btn-sm" onclick="dScCancel('${sid}')">✕</button></td>`;
+}
+function dScEdit(spId){
+  const s=allSC.find(x=>x._spId===spId);if(!s)return;
+  const row=document.getElementById('sc-drow-'+spId);if(!row)return;
+  row.innerHTML=dScEditRow(spId,s.Probe||'',s.Leergewicht_g??'',s.Einwaage_g??'',s.Endgewicht_g??'',s.Kommentar||'');
+}
+function dScCancel(sid){
+  const s=allSC.find(x=>x._spId===sid);
+  const row=document.getElementById('sc-drow-'+sid);if(!row)return;
+  if(s)row.outerHTML=dScRow(s); else row.remove();
+}
+async function dScSave(sid){
+  const row=document.getElementById('sc-drow-'+sid);if(!row)return;
+  const s=allSC.find(x=>x._spId===sid);
+  const expId=s?s.Experiment_ID:row.dataset.expid;
+  const int={Experiment_ID:expId,Probe:(document.getElementById('sd-p-'+sid)?.value||'').trim(),Leergewicht_g:document.getElementById('sd-l-'+sid)?.value!==''?parseFloat(document.getElementById('sd-l-'+sid)?.value):null,Einwaage_g:document.getElementById('sd-e-'+sid)?.value!==''?parseFloat(document.getElementById('sd-e-'+sid)?.value):null,Endgewicht_g:document.getElementById('sd-en-'+sid)?.value!==''?parseFloat(document.getElementById('sd-en-'+sid)?.value):null,Kommentar:(document.getElementById('sd-k-'+sid)?.value||'').trim()};
+  try{
+    if(s){
+      await spPatch(LIST.feststoffgehalt,sid,mapTo(int,FIELDS.feststoffgehalt));Object.assign(s,int);row.outerHTML=dScRow(s);
+    } else {
+      const saved=await spPost(LIST.feststoffgehalt,mapTo(int,FIELDS.feststoffgehalt));
+      const newS={...int,_spId:saved.d.Id};allSC.unshift(newS);row.outerHTML=dScRow(newS);
+    }
+    cachedErgebnisse=computeErgebnisse();filterRes();
+  }catch(e){alert('Fehler: '+e.message);}
+}
+async function dScDel(spId){
+  if(!confirm('SC-Messung löschen?'))return;
+  try{
+    await spDelete(LIST.feststoffgehalt,spId);
+    allSC=allSC.filter(x=>x._spId!==spId);cachedErgebnisse=computeErgebnisse();filterRes();
+    document.getElementById('sc-drow-'+spId)?.remove();
+    const tbody=document.getElementById('sc-detail-tbody');
+    if(tbody&&!tbody.querySelector('tr[id^="sc-drow-"]'))tbody.innerHTML='<tr id="sc-empty-row"><td colspan="7" class="modal-empty">Keine SC-Messungen vorhanden.</td></tr>';
+  }catch(e){alert('Fehler: '+e.message);}
+}
+function dScAdd(expId){
+  document.getElementById('sc-empty-row')?.remove();
+  const tbody=document.getElementById('sc-detail-tbody');if(!tbody)return;
+  const sid='new'+Date.now();
+  const tr=document.createElement('tr');tr.id='sc-drow-'+sid;tr.dataset.expid=expId;
+  tr.innerHTML=dScEditRow(sid,'','','','','');
+  tbody.appendChild(tr);document.getElementById('sd-p-'+sid)?.focus();
+}
 
 // ─── Detail modal: Komponenten bearbeiten ──────────────────────────────────
 function dKompRow(k,expId){
