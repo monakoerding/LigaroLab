@@ -504,9 +504,10 @@ function buildPlotConfig(rows, labelMap, plotTitle){
     rows.forEach(r=>{if(r.MWSC!=null&&scByExp[r.Experiment_ID]==null)scByExp[r.Experiment_ID]=r.MWSC;});
     datasets.push({label:'SC %',data:expIds.map(id=>scByExp[id]??null),backgroundColor:'rgba(44,210,167,0.72)',yAxisID:'y2',order:4});
   }
+  const yMax=Math.max(...rows.map(r=>(r.MWMpa||0)+(r.StdAbw||0)));
   const scales={
     x:{ticks:{font:{size:10},maxRotation:45}},
-    y:{type:'linear',position:'left',title:{display:true,text:'MPa',font:{size:12}}},
+    y:{type:'linear',position:'left',title:{display:true,text:'MPa',font:{size:12}},suggestedMax:yMax*1.08},
   };
   if(hasSC)scales.y2={type:'linear',position:'right',title:{display:true,text:'%',font:{size:12}},grid:{drawOnChartArea:false}};
   return{
