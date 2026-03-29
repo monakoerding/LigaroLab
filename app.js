@@ -457,16 +457,14 @@ const errDotsPlugin={
           vals.forEach((v,vi)=>{
             const px=bar.x,py=yScale.getPixelForValue(v);
             const hb=hbArr?.[vi];
-            // colored ring: 0% HB=white, 100% HB=orange (255,140,0)
+            let dotColor='#000';
             if(hb!=null){
-              const t=Math.max(0,Math.min(1,hb/100));
-              ctx.save();
-              ctx.strokeStyle=`rgb(255,${Math.round(255*(1-t)+140*t)},${Math.round(255*(1-t))})`;
-              ctx.lineWidth=2.5;
-              ctx.beginPath();ctx.arc(px,py,5,0,Math.PI*2);ctx.stroke();
-              ctx.restore();
+              if(hb===0)dotColor='#000';
+              else if(hb<50)dotColor='#6b3a2a';
+              else if(hb<100)dotColor='#b35a00';
+              else dotColor='#ff8c00';
             }
-            ctx.save();ctx.fillStyle='#000';ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.restore();
+            ctx.save();ctx.fillStyle=dotColor;ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.restore();
             chart._dotHitAreas.push({x:px,y:py,r:7,mpa:v,hb:hb??null});
           });
         });
