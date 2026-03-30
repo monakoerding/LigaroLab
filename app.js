@@ -1365,6 +1365,8 @@ function dupExp(expId){
   document.getElementById('f-exp-pressdruck').value=item.Pressdruck??'';
   document.getElementById('f-exp-presstemperatur').value=item.Presstemperatur??'';
   document.getElementById('f-exp-presszeit').value=item.Presszeit??'';
+  // Komponenten übertragen (ohne _spId → werden als neue Einträge gespeichert)
+  allKomps.filter(k=>k.Experiment_ID===item.Experiment_ID).forEach(({_spId,...k})=>addKompRow(k));
 }
 function fillSelectPers(){
   const sel=document.getElementById('f-exp-person');
