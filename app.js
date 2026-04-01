@@ -62,6 +62,7 @@ let selectedResProj=new Set(),selectedResPers=new Set(),selectedResLafo=new Set(
 let mpaRanges={};
 let activeTextCol='Beschreibung';
 let editingExp=null,editingMat=null,editingChem=null,editingSC=null,editingLafo=null,editingMach=null,editingProj=null;
+let editExpIdAllowed=false;
 let lafoSchrittIdx=0,deletedLafoSchritte=[];
 let kompIdx=0,deletedKomps=[];
 // Sort state: col + dir (1=asc, -1=desc)
@@ -526,7 +527,7 @@ function buildPlotConfig(rows, labelMap, plotTitle){
   };
 }
 
-let _plotCharts=[],_plotRows=[];
+let _plotCharts=[],_plotRows=[],_dragSrcEl=null;
 function plotRes(){
   if(!currentResRows.length){alert('Keine Daten für den Plot vorhanden.');return;}
   enterPlotSel();
@@ -536,12 +537,10 @@ function openPlotWithRows(rows){
   const MAX_PER=10,MAX_CHARTS=5;
   const uniqueExpIds=[...new Set(rows.map(r=>r.Experiment_ID))];
   if(uniqueExpIds.length>MAX_PER*MAX_CHARTS){alert(`Zu viele Experimente (${uniqueExpIds.length}) für den Plot. Maximal ${MAX_PER*MAX_CHARTS}.`);return;}
-  _plotCharts.forEach(c=>c.destroy());_plotCharts=[];
   _plotRows=rows;
   // chunk by unique experiment IDs
   const expChunks=[];
   for(let i=0;i<uniqueExpIds.length;i+=MAX_PER)expChunks.push(uniqueExpIds.slice(i,i+MAX_PER));
-  const body=document.getElementById('plot-body');body.innerHTML='';
   const overlay=document.getElementById('plot-overlay');overlay.style.display='flex';overlay.classList.add('open');
   // reset side-panel inputs
   const titleInput=document.getElementById('plot-title-input');if(titleInput)titleInput.value='';
@@ -549,9 +548,14 @@ function openPlotWithRows(rows){
     labelDiv.innerHTML=uniqueExpIds.map(id=>{
       const exp=allExp.find(e=>e.Experiment_ID===id);
       const titel=exp?.Projekttitel||'';
-      return`<div style="margin-bottom:6px"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(titel)}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div>`;
+      return`<div draggable="true" ondragstart="plotDragStart(event)" ondragover="plotDragOver(event)" ondrop="plotDrop(event)" ondragend="plotDragEnd(event)" data-expid="${esc(id)}" style="margin-bottom:6px;display:flex;align-items:center;gap:6px"><span style="color:#aaa;cursor:grab;user-select:none;font-size:16px;line-height:1">⠿</span><div style="flex:1"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(titel)}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div></div>`;
     }).join('');
   }
+  _buildPlotChartBody(expChunks,rows,{});
+}
+function _buildPlotChartBody(expChunks,rows,labelMap,title){
+  _plotCharts.forEach(c=>c.destroy());_plotCharts=[];
+  const body=document.getElementById('plot-body');body.innerHTML='';
   expChunks.forEach((expIds,ci)=>{
     const chunk=rows.filter(r=>expIds.includes(r.Experiment_ID));
     const wrap=document.createElement('div');wrap.className='plot-chart-wrap';
@@ -567,7 +571,7 @@ function openPlotWithRows(rows){
     const st=document.createElement('span');st.id='plot-st-'+ci;st.style.cssText='font-size:12px;margin-left:8px';
     foot.append(dlBtn,lbl,sel,saveBtn,st);wrap.appendChild(foot);body.appendChild(wrap);
     try{
-      const chart=new Chart(canvas,buildPlotConfig(chunk,getLabelMap(),''));
+      const chart=new Chart(canvas,buildPlotConfig(chunk,labelMap||getLabelMap(),title||''));
       chart._expIds=expIds;
       _plotCharts.push(chart);
       canvas.addEventListener('mousemove',e=>{
@@ -586,6 +590,33 @@ function openPlotWithRows(rows){
     }catch(e){cw.innerHTML=`<p style="padding:20px;color:#c53030">Fehler beim Erstellen des Charts: ${esc(e.message)}</p>`;}
   });
 }
+function rebuildPlotCharts(){
+  const labelDiv=document.getElementById('plot-label-inputs');if(!labelDiv)return;
+  const orderedIds=[...labelDiv.querySelectorAll('div[data-expid]')].map(w=>w.dataset.expid);
+  const savedLabels=getLabelMap();
+  const savedTitle=document.getElementById('plot-title-input')?.value||'';
+  const rowsByExp={};
+  _plotRows.forEach(r=>{if(!rowsByExp[r.Experiment_ID])rowsByExp[r.Experiment_ID]=[];rowsByExp[r.Experiment_ID].push(r);});
+  _plotRows=orderedIds.flatMap(id=>rowsByExp[id]||[]);
+  const MAX_PER=10;
+  const expChunks=[];for(let i=0;i<orderedIds.length;i+=MAX_PER)expChunks.push(orderedIds.slice(i,i+MAX_PER));
+  _buildPlotChartBody(expChunks,_plotRows,savedLabels,savedTitle);
+}
+function plotDragStart(e){_dragSrcEl=e.currentTarget;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain','');e.currentTarget.style.opacity='0.4';}
+function plotDragOver(e){e.preventDefault();e.dataTransfer.dropEffect='move';return false;}
+function plotDrop(e){
+  e.stopPropagation();
+  const tgt=e.currentTarget;
+  if(_dragSrcEl&&_dragSrcEl!==tgt){
+    const parent=tgt.parentNode;
+    const items=[...parent.children];
+    const srcIdx=items.indexOf(_dragSrcEl),tgtIdx=items.indexOf(tgt);
+    if(srcIdx<tgtIdx)parent.insertBefore(_dragSrcEl,tgt.nextSibling);else parent.insertBefore(_dragSrcEl,tgt);
+    rebuildPlotCharts();
+  }
+  return false;
+}
+function plotDragEnd(e){e.currentTarget.style.opacity='';_dragSrcEl=null;}
 function getLabelMap(){
   const map={};
   document.querySelectorAll('#plot-label-inputs input[data-expid]').forEach(inp=>{
@@ -1301,6 +1332,7 @@ function closePanel(){document.getElementById('overlay').classList.remove('open'
 
 // ─── Experiment form ───────────────────────────────────────────────────────
 function initExpForm(item){
+  editExpIdAllowed=false;
   document.getElementById('exp-alert').innerHTML='';
   document.getElementById('panel-exp-title').textContent=item?'Experiment bearbeiten':'Neues Experiment';
   document.getElementById('btn-del-exp').style.display=item?'':'none';
@@ -1399,11 +1431,37 @@ function onProjSelect(){
   const val=document.getElementById('f-exp-proj').value;
   const fields=document.getElementById('new-proj-fields');
   fields.style.display=val==='__new__'?'block':'none';
+  if(editingExp){
+    const origProj=editingExp.Projekt_Kuerzel||'';
+    const projChanged=val&&val!==origProj;
+    if(projChanged&&!editExpIdAllowed){
+      if(!confirm('Willst du wirklich die Experiment-ID ändern?')){
+        document.getElementById('f-exp-proj').value=origProj;
+        fields.style.display='none';
+        return;
+      }
+      editExpIdAllowed=true;
+    }
+    if(editExpIdAllowed){
+      if(val==='__new__'){document.getElementById('f-exp-id').value='';document.getElementById('f-exp-id-hint').textContent='';}
+      else if(val){
+        const nums=allExp.filter(e=>e.Experiment_ID?.startsWith(val+'-')&&e.Experiment_ID!==editingExp.Experiment_ID).map(e=>parseInt(e.Experiment_ID.split('-')[1])).filter(n=>Number.isFinite(n));
+        const sug=`${val}-${String(nums.length?Math.max(...nums)+1:1).padStart(3,'0')}`;
+        document.getElementById('f-exp-id').value=sug;
+        document.getElementById('f-exp-id-hint').textContent=`Neue ID: ${sug} (geändert von ${editingExp.Experiment_ID})`;
+      }
+    } else if(!projChanged){
+      // reverted to original project
+      document.getElementById('f-exp-id').value=editingExp.Experiment_ID;
+      document.getElementById('f-exp-id-hint').textContent='';
+    }
+    return;
+  }
   if(val!=='__new__')suggestExpId();
   else{document.getElementById('f-exp-id').value='';document.getElementById('f-exp-id-hint').textContent='';}
 }
 function suggestExpId(){
-  if(editingExp)return;
+  if(editingExp&&!editExpIdAllowed)return;
   const sel=document.getElementById('f-exp-proj');
   const proj=sel.value==='__new__'?document.getElementById('f-new-proj-kuerzel').value.trim():sel.value;
   if(!proj)return;
@@ -1448,7 +1506,21 @@ async function saveExperiment(){
     const pzVal=document.getElementById('f-exp-presszeit').value;
     const int={Experiment_ID:id,Projekt_Kuerzel:proj,Datum:datum+'T00:00:00Z',Person_Kuerzel:person,Projekttitel:document.getElementById('f-exp-titel').value.trim(),Beschreibung:document.getElementById('f-exp-beschreibung').value.trim(),Beobachtungen:document.getElementById('f-exp-beob').value.trim(),Kommentar:document.getElementById('f-exp-komm').value.trim(),Presse:document.getElementById('f-exp-presse').value||null,Pressdruck:pdVal!==''?parseFloat(pdVal):null,Presstemperatur:ptVal!==''?parseFloat(ptVal):null,Presszeit:pzVal!==''?parseFloat(pzVal):null};
     const sp=mapTo(int,FIELDS.experimente);
-    if(editingExp){await spPatch(LIST.experimente,editingExp._spId,sp);Object.assign(editingExp,int);}
+    if(editingExp){
+      const oldId=editingExp.Experiment_ID;
+      await spPatch(LIST.experimente,editingExp._spId,sp);
+      Object.assign(editingExp,int);
+      if(oldId!==id){
+        const matItems=allMat.filter(m=>m.Experiment_ID===oldId);
+        await Promise.all(matItems.map(m=>spPatch(LIST.material,m._spId,{[FIELDS.material.Experiment_ID]:id})));
+        matItems.forEach(m=>m.Experiment_ID=id);
+        const scItems=allSC.filter(s=>s.Experiment_ID===oldId);
+        await Promise.all(scItems.map(s=>spPatch(LIST.feststoffgehalt,s._spId,{[FIELDS.feststoffgehalt.Experiment_ID]:id})));
+        scItems.forEach(s=>s.Experiment_ID=id);
+        const statusVal=localStorage.getItem('expStatus-'+oldId);
+        if(statusVal!==null){localStorage.setItem('expStatus-'+id,statusVal);localStorage.removeItem('expStatus-'+oldId);}
+      }
+    }
     else{const saved=await spPost(LIST.experimente,sp);const newId=int.Experiment_ID;localStorage.setItem('expStatus-'+newId,'0');allExp.unshift({...int,_spId:saved.d.Id});}
     // Handle Komponenten
     await Promise.all(deletedKomps.map(sid=>spDelete(LIST.komponenten,sid)));
