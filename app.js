@@ -151,8 +151,18 @@ function onResPersChange(cb){cb.checked?selectedResPers.add(cb.value):selectedRe
 function onResLafoChange(cb){cb.checked?selectedResLafo.add(cb.value):selectedResLafo.delete(cb.value);updateMsBtn('res-lafo',selectedResLafo);filterRes();}
 
 function checkDupExpId(input){
+  if(editingExp&&!editExpIdAllowed){
+    const origId=editingExp.Experiment_ID;
+    if(input.value!==origId){
+      if(!confirm('Willst du wirklich die Experiment-ID ändern?')){
+        input.value=origId;
+        return;
+      }
+      editExpIdAllowed=true;
+    }
+  }
   const val=input.value;
-  const isDup=val&&!editingExp&&allExp.some(e=>e.Experiment_ID===val);
+  const isDup=val&&allExp.some(e=>e.Experiment_ID===val&&e._spId!==editingExp?._spId);
   input.style.borderColor=isDup?'#f59e0b':'';
   input.style.background=isDup?'#fffbeb':'';
   const hint=document.getElementById('f-exp-id-hint');
@@ -527,7 +537,7 @@ function buildPlotConfig(rows, labelMap, plotTitle){
   };
 }
 
-let _plotCharts=[],_plotRows=[],_dragSrcEl=null;
+let _plotCharts=[],_plotRows=[],_dragSrcEl=null,_plotLafoFilter='all';
 function plotRes(){
   if(!currentResRows.length){alert('Keine Daten für den Plot vorhanden.');return;}
   enterPlotSel();
@@ -538,12 +548,17 @@ function openPlotWithRows(rows){
   const uniqueExpIds=[...new Set(rows.map(r=>r.Experiment_ID))];
   if(uniqueExpIds.length>MAX_PER*MAX_CHARTS){alert(`Zu viele Experimente (${uniqueExpIds.length}) für den Plot. Maximal ${MAX_PER*MAX_CHARTS}.`);return;}
   _plotRows=rows;
+  _plotLafoFilter='all';
   // chunk by unique experiment IDs
   const expChunks=[];
   for(let i=0;i<uniqueExpIds.length;i+=MAX_PER)expChunks.push(uniqueExpIds.slice(i,i+MAX_PER));
   const overlay=document.getElementById('plot-overlay');overlay.style.display='flex';overlay.classList.add('open');
   // reset side-panel inputs
   const titleInput=document.getElementById('plot-title-input');if(titleInput)titleInput.value='';
+  const radioAll=document.querySelector('input[name="plot-lafo"][value="all"]');if(radioAll)radioAll.checked=true;
+  // populate add-exp datalist
+  const addList=document.getElementById('plot-add-exp-list');
+  if(addList){addList.innerHTML=cachedErgebnisse.map(r=>r.Experiment_ID).filter((v,i,a)=>a.indexOf(v)===i).map(id=>`<option value="${esc(id)}">`).join('');}
   const labelDiv=document.getElementById('plot-label-inputs');if(labelDiv){
     labelDiv.innerHTML=uniqueExpIds.map(id=>{
       const exp=allExp.find(e=>e.Experiment_ID===id);
@@ -566,6 +581,7 @@ function _buildPlotChartBody(expChunks,rows,labelMap,title){
     const dlBtn=document.createElement('button');dlBtn.className='btn btn-secondary btn-sm';dlBtn.textContent='↓ PNG';dlBtn.onclick=()=>downloadPlotChart(ci);
     const lbl=document.createElement('span');lbl.style.cssText='font-size:13px;margin-left:10px';lbl.textContent='Als Anhang zu:';
     const sel=document.createElement('select');sel.id='plot-sel-'+ci;sel.style.cssText='margin:0 6px;min-width:140px';
+    const allOpt=document.createElement('option');allOpt.value='__all__';allOpt.textContent='Allen zuordnen';sel.appendChild(allOpt);
     expIds.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=id;sel.appendChild(o);});
     const saveBtn=document.createElement('button');saveBtn.className='btn btn-primary btn-sm';saveBtn.textContent='📎 Speichern';saveBtn.onclick=()=>savePlotChart(ci);
     const st=document.createElement('span');st.id='plot-st-'+ci;st.style.cssText='font-size:12px;margin-left:8px';
@@ -595,12 +611,42 @@ function rebuildPlotCharts(){
   const orderedIds=[...labelDiv.querySelectorAll('div[data-expid]')].map(w=>w.dataset.expid);
   const savedLabels=getLabelMap();
   const savedTitle=document.getElementById('plot-title-input')?.value||'';
+  // Re-sync _plotRows order
   const rowsByExp={};
   _plotRows.forEach(r=>{if(!rowsByExp[r.Experiment_ID])rowsByExp[r.Experiment_ID]=[];rowsByExp[r.Experiment_ID].push(r);});
   _plotRows=orderedIds.flatMap(id=>rowsByExp[id]||[]);
+  // Apply lafo filter
+  const filteredRows=_plotLafoFilter==='all'?_plotRows
+    :_plotLafoFilter==='wet'?_plotRows.filter(r=>(r.Lagerfolge_ID||'').toUpperCase().includes('WET'))
+    :_plotRows.filter(r=>!(r.Lagerfolge_ID||'').toUpperCase().includes('WET'));
+  const activeIds=orderedIds.filter(id=>filteredRows.some(r=>r.Experiment_ID===id));
   const MAX_PER=10;
-  const expChunks=[];for(let i=0;i<orderedIds.length;i+=MAX_PER)expChunks.push(orderedIds.slice(i,i+MAX_PER));
-  _buildPlotChartBody(expChunks,_plotRows,savedLabels,savedTitle);
+  const expChunks=[];for(let i=0;i<activeIds.length;i+=MAX_PER)expChunks.push(activeIds.slice(i,i+MAX_PER));
+  _buildPlotChartBody(expChunks,filteredRows,savedLabels,savedTitle);
+}
+function onPlotLafoFilter(){
+  _plotLafoFilter=document.querySelector('input[name="plot-lafo"]:checked')?.value||'all';
+  rebuildPlotCharts();
+}
+function plotAddExp(){
+  const input=document.getElementById('plot-add-exp');
+  const id=input.value.trim().toUpperCase();
+  if(!id)return;
+  if(_plotRows.some(r=>r.Experiment_ID===id)){input.value='';return;}
+  const expRows=cachedErgebnisse.filter(r=>r.Experiment_ID===id);
+  if(!expRows.length){alert(`Experiment ${id} hat keine Ergebnisse.`);return;}
+  _plotRows=[..._plotRows,...expRows];
+  input.value='';
+  const labelDiv=document.getElementById('plot-label-inputs');
+  if(labelDiv){
+    const exp=allExp.find(e=>e.Experiment_ID===id);
+    const newDiv=document.createElement('div');
+    newDiv.draggable=true;newDiv.setAttribute('ondragstart','plotDragStart(event)');newDiv.setAttribute('ondragover','plotDragOver(event)');newDiv.setAttribute('ondrop','plotDrop(event)');newDiv.setAttribute('ondragend','plotDragEnd(event)');newDiv.dataset.expid=id;
+    newDiv.style.cssText='margin-bottom:6px;display:flex;align-items:center;gap:6px';
+    newDiv.innerHTML=`<span style="color:#aaa;cursor:grab;user-select:none;font-size:16px;line-height:1">⠿</span><div style="flex:1"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(exp?.Projekttitel||'')}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div>`;
+    labelDiv.appendChild(newDiv);
+  }
+  rebuildPlotCharts();
 }
 function plotDragStart(e){_dragSrcEl=e.currentTarget;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain','');e.currentTarget.style.opacity='0.4';}
 function plotDragOver(e){e.preventDefault();e.dataTransfer.dropEffect='move';return false;}
@@ -647,15 +693,26 @@ function downloadPlotChart(ci){
 async function savePlotChart(ci){
   const canvas=document.getElementById('plot-cv-'+ci),sel=document.getElementById('plot-sel-'+ci),st=document.getElementById('plot-st-'+ci);
   if(!canvas||!sel)return;
-  const expId=sel.value,exp=allExp.find(e=>e.Experiment_ID===expId);
-  if(!exp){st.textContent='Experiment nicht gefunden.';return;}
+  const expId=sel.value;
   st.textContent='Speichert…';st.style.color='';
   try{
     const blob=await new Promise(res=>canvas.toBlob(res,'image/png'));
     const buf=await blob.arrayBuffer();
-    const fname=`plot_${expId}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
-    await spAttach(LIST.experimente,exp._spId,fname,buf);
-    st.textContent='✓ Gespeichert!';st.style.color='#1a6b3c';setTimeout(()=>{st.textContent='';st.style.color='';},3000);
+    const timestamp=new Date().toISOString().slice(0,19).replace(/:/g,'-');
+    if(expId==='__all__'){
+      const chart=_plotCharts[ci];
+      const ids=chart?._expIds||[...sel.options].filter(o=>o.value!=='__all__').map(o=>o.value);
+      const exps=ids.map(id=>allExp.find(e=>e.Experiment_ID===id)).filter(Boolean);
+      await Promise.all(exps.map(exp=>spAttach(LIST.experimente,exp._spId,`plot_${exp.Experiment_ID}_${timestamp}.png`,buf.slice(0))));
+      st.textContent=`✓ ${exps.length}× gespeichert!`;st.style.color='#1a6b3c';
+    } else {
+      const exp=allExp.find(e=>e.Experiment_ID===expId);
+      if(!exp){st.textContent='Experiment nicht gefunden.';return;}
+      const fname=`plot_${expId}_${timestamp}.png`;
+      await spAttach(LIST.experimente,exp._spId,fname,buf);
+      st.textContent='✓ Gespeichert!';st.style.color='#1a6b3c';
+    }
+    setTimeout(()=>{st.textContent='';st.style.color='';},3000);
   }catch(e){st.textContent='Fehler: '+e.message;st.style.color='#c53030';}
 }
 
@@ -1336,7 +1393,7 @@ function initExpForm(item){
   document.getElementById('exp-alert').innerHTML='';
   document.getElementById('panel-exp-title').textContent=item?'Experiment bearbeiten':'Neues Experiment';
   document.getElementById('btn-del-exp').style.display=item?'':'none';
-  document.getElementById('f-exp-id').disabled=!!item;
+  document.getElementById('f-exp-id').disabled=false;
   fillSelectProj();
   fillSelectPers();
   fillSelectPresse();
@@ -1379,8 +1436,9 @@ function initExpForm(item){
 function editExp(expId){const item=allExp.find(e=>e.Experiment_ID===expId);if(!item)return;editingExp=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-exp').classList.add('open');activePanel='exp';initExpForm(item);}
 function dupExp(expId){
   const item=allExp.find(e=>e.Experiment_ID===expId);if(!item)return;
-  const prefix=item.Experiment_ID.replace(/-.*/, '');
-  const nums=allExp.filter(e=>e.Experiment_ID?.startsWith(prefix+'-')).map(e=>parseInt(e.Experiment_ID.split('-')[1])).filter(n=>Number.isFinite(n));
+  const lastDash=item.Experiment_ID.lastIndexOf('-');
+  const prefix=lastDash>=0?item.Experiment_ID.substring(0,lastDash):item.Experiment_ID;
+  const nums=allExp.filter(e=>e.Experiment_ID?.startsWith(prefix+'-')).map(e=>parseInt(e.Experiment_ID.substring(prefix.length+1).split('-')[0])).filter(n=>Number.isFinite(n));
   const newId=`${prefix}-${String(nums.length?Math.max(...nums)+1:1).padStart(3,'0')}`;
   editingExp=null;
   document.getElementById('overlay').classList.add('open');document.getElementById('panel-exp').classList.add('open');activePanel='exp';
@@ -1391,8 +1449,8 @@ function dupExp(expId){
   document.getElementById('f-exp-person').value=item.Person_Kuerzel||'';
   document.getElementById('f-exp-titel').value=item.Projekttitel||'';
   document.getElementById('f-exp-beschreibung').value=item.Beschreibung||'';
-  document.getElementById('f-exp-beob').value=item.Beobachtungen||'';
-  document.getElementById('f-exp-komm').value=item.Kommentar||'';
+  document.getElementById('f-exp-beob').value='';
+  document.getElementById('f-exp-komm').value='';
   document.getElementById('f-exp-presse').value=item.Presse||'';
   document.getElementById('f-exp-pressdruck').value=item.Pressdruck??'';
   document.getElementById('f-exp-presstemperatur').value=item.Presstemperatur??'';
@@ -1480,7 +1538,7 @@ async function saveExperiment(){
   if(!id||!proj||!datum||!person){alertEl.innerHTML='<div class="alert alert-err">Bitte alle Pflichtfelder (*) ausfüllen.</div>';return;}
   if(isNewProj&&projekte.some(p=>p.Projekt_Kuerzel===proj)){alertEl.innerHTML=`<div class="alert alert-err">Projektkürzel „${proj}" existiert bereits.</div>`;return;}
   if(isNewPers&&personen.some(p=>p.Kuerzel===person)){alertEl.innerHTML=`<div class="alert alert-err">Kürzel „${person}" existiert bereits.</div>`;return;}
-  if(!editingExp&&allExp.some(e=>e.Experiment_ID===id)){alertEl.innerHTML=`<div class="alert alert-err">ID „${id}" existiert bereits.</div>`;return;}
+  if(allExp.some(e=>e.Experiment_ID===id&&e._spId!==editingExp?._spId)){alertEl.innerHTML=`<div class="alert alert-err">ID „${id}" existiert bereits.</div>`;return;}
   btn.disabled=true;btn.textContent='Speichert…';alertEl.innerHTML='';
   try{
     // 1. Neues Projekt anlegen falls nötig
@@ -1720,4 +1778,76 @@ async function deleteChem(){
   if(!editingChem||!confirm(`„${editingChem.Chemikalie_Name}" wirklich löschen?`))return;
   try{await spDelete(LIST.chemikalien,editingChem._spId);allChem=allChem.filter(c=>c._spId!==editingChem._spId);filterChem();closePanel();}
   catch(e){document.getElementById('chem-alert').innerHTML=`<div class="alert alert-err">Fehler: ${esc(e.message)}</div>`;}
+}
+
+// ─── Grafiken (Gallery) ───────────────────────────────────────────────────
+let _grafItems=[],_grafQuery='';
+async function loadGrafiken(){
+  const gallery=document.getElementById('graf-gallery');
+  const count=document.getElementById('graf-count');
+  gallery.innerHTML='<p class="state">Lade Experimente mit Anhängen…</p>';
+  count.textContent='';
+  try{
+    const token=await getToken();
+    // Fetch all experiments that have attachments
+    const url=`${SP}/_api/web/lists/getbytitle('${enc(LIST.experimente)}')/items?$select=Id,Title,field_2,field_3,field_5&$filter=Attachments eq 1&$top=5000`;
+    const r=await fetch(url,{headers:{Accept:'application/json;odata=verbose',Authorization:'Bearer '+token}});
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    const d=await r.json();
+    const items=d.d.results;
+    gallery.innerHTML=`<p class="state">Lade Anhänge für ${items.length} Experiment(e)…</p>`;
+    // Fetch attachments in parallel batches of 8
+    const BATCH=8;
+    _grafItems=[];
+    for(let i=0;i<items.length;i+=BATCH){
+      const batch=items.slice(i,i+BATCH);
+      const results=await Promise.all(batch.map(async item=>{
+        const atts=await spGetAttachments(LIST.experimente,item.Id).catch(()=>[]);
+        return atts.map(a=>({
+          spId:item.Id,
+          expId:item.Title,
+          proj:item.field_2,
+          datum:(item.field_3||'').substring(0,10),
+          titel:item.field_5||'',
+          fileName:a.FileName,
+          url:a.ServerRelativeUrl,
+          isImage:['jpg','jpeg','png','gif','webp'].includes((a.FileName||'').split('.').pop().toLowerCase()),
+        }));
+      }));
+      results.forEach(arr=>_grafItems.push(...arr));
+    }
+    renderGrafGallery();
+  }catch(e){gallery.innerHTML=`<p class="state">Fehler: ${esc(e.message)}</p>`;}
+}
+function grafDisplayName(item){
+  if(item.titel)return item.titel;
+  return`${item.datum}_${item.expId}`.replace(/^_/,'').replace(/_$/,'');
+}
+function filterGraf(){
+  _grafQuery=document.getElementById('graf-search').value.toLowerCase();
+  renderGrafGallery();
+}
+function renderGrafGallery(){
+  const gallery=document.getElementById('graf-gallery');
+  const count=document.getElementById('graf-count');
+  const filtered=_grafItems.filter(item=>{
+    if(!_grafQuery)return true;
+    return`${item.expId} ${item.titel} ${item.fileName}`.toLowerCase().includes(_grafQuery);
+  });
+  count.textContent=filtered.length+' Anhänge';
+  if(!filtered.length){gallery.innerHTML='<p class="state">Keine Ergebnisse.</p>';return;}
+  gallery.innerHTML=filtered.map(item=>{
+    const displayName=esc(grafDisplayName(item));
+    const fullUrl=esc(SP_HOST+item.url);
+    const thumb=item.isImage?`<a href="${fullUrl}" target="_blank"><img src="${fullUrl}" loading="lazy" style="width:100%;height:160px;object-fit:cover;display:block;border-radius:6px 6px 0 0"></a>`
+      :`<a href="${fullUrl}" target="_blank" style="display:flex;align-items:center;justify-content:center;height:160px;font-size:48px;background:#f5f7fa;border-radius:6px 6px 0 0;text-decoration:none">${fileIcon(item.fileName)}</a>`;
+    return`<div class="graf-card">
+      ${thumb}
+      <div class="graf-card-body">
+        <div class="graf-card-name" title="${displayName}">${displayName}</div>
+        <div class="graf-card-exp" onclick="openDetail(event,'${esc(item.expId)}')">${esc(item.expId)}</div>
+        <div class="graf-card-file" title="${esc(item.fileName)}">${esc(item.fileName)}</div>
+      </div>
+    </div>`;
+  }).join('');
 }

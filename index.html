@@ -32,6 +32,7 @@
   <button onclick="showTab('lafo',this)">Lagerfolgen</button>
   <button onclick="showTab('mach',this)">Maschinen</button>
   <button onclick="showTab('proj',this)">Projekte</button>
+  <button onclick="showTab('graf',this)">Grafiken</button>
 </nav>
 <main>
 
@@ -241,6 +242,19 @@
     </div>
   </div>
 
+
+  <!-- GRAFIKEN -->
+  <div id="pane-graf" class="pane">
+    <div class="toolbar">
+      <input type="search" id="graf-search" placeholder="Suche nach ID, Titel, Dateiname…" oninput="filterGraf()">
+      <span class="row-count" id="graf-count"></span>
+      <button class="btn btn-secondary" onclick="loadGrafiken()">↺ Laden</button>
+    </div>
+    <div id="graf-gallery" style="display:flex;flex-wrap:wrap;gap:16px;padding:4px 0">
+      <p class="state" style="width:100%">Klicke „Laden" um alle Grafiken und Anhänge zu laden.</p>
+    </div>
+  </div>
+
 </main>
 </div>
 
@@ -269,6 +283,20 @@
       <div class="plot-side" id="plot-side">
         <h3>Plottitel</h3>
         <input type="text" id="plot-title-input" placeholder="Titel (optional)" oninput="updatePlotTitle(this.value)">
+        <hr>
+        <h3>Protokolltyp</h3>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="radio" name="plot-lafo" value="all" checked onchange="onPlotLafoFilter()"> Alle</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="radio" name="plot-lafo" value="dry" onchange="onPlotLafoFilter()"> Nur Trocken</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="radio" name="plot-lafo" value="wet" onchange="onPlotLafoFilter()"> Nur Nass</label>
+        </div>
+        <hr>
+        <h3>Experiment hinzufügen</h3>
+        <div style="display:flex;gap:4px">
+          <input type="text" id="plot-add-exp" placeholder="Exp.-ID…" list="plot-add-exp-list" autocomplete="off" oninput="this.value=this.value.toUpperCase()" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px">
+          <datalist id="plot-add-exp-list"></datalist>
+          <button class="btn btn-primary btn-sm" onclick="plotAddExp()">+</button>
+        </div>
         <hr>
         <h3>Achsenbeschriftung</h3>
         <div id="plot-label-inputs"></div>
