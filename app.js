@@ -563,7 +563,7 @@ function openPlotWithRows(rows){
     labelDiv.innerHTML=uniqueExpIds.map(id=>{
       const exp=allExp.find(e=>e.Experiment_ID===id);
       const titel=exp?.Projekttitel||'';
-      return`<div draggable="true" ondragstart="plotDragStart(event)" ondragover="plotDragOver(event)" ondrop="plotDrop(event)" ondragend="plotDragEnd(event)" data-expid="${esc(id)}" style="margin-bottom:6px;display:flex;align-items:center;gap:6px"><span style="color:#aaa;cursor:grab;user-select:none;font-size:16px;line-height:1">⠿</span><div style="flex:1"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(titel)}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div></div>`;
+      return`<div draggable="true" ondragstart="plotDragStart(event)" ondragover="plotDragOver(event)" ondrop="plotDrop(event)" ondragend="plotDragEnd(event)" data-expid="${esc(id)}" style="margin-bottom:6px;display:flex;align-items:center;gap:6px"><span style="color:#aaa;cursor:grab;user-select:none;font-size:16px;line-height:1">⠿</span><div style="flex:1"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(titel)}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div><button onclick="plotRemoveExp('${esc(id)}')" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:15px;padding:0 2px;line-height:1;flex-shrink:0" title="Entfernen">×</button></div>`;
     }).join('');
   }
   _buildPlotChartBody(expChunks,rows,{});
@@ -643,9 +643,15 @@ function plotAddExp(){
     const newDiv=document.createElement('div');
     newDiv.draggable=true;newDiv.setAttribute('ondragstart','plotDragStart(event)');newDiv.setAttribute('ondragover','plotDragOver(event)');newDiv.setAttribute('ondrop','plotDrop(event)');newDiv.setAttribute('ondragend','plotDragEnd(event)');newDiv.dataset.expid=id;
     newDiv.style.cssText='margin-bottom:6px;display:flex;align-items:center;gap:6px';
-    newDiv.innerHTML=`<span style="color:#aaa;cursor:grab;user-select:none;font-size:16px;line-height:1">⠿</span><div style="flex:1"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(exp?.Projekttitel||'')}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div>`;
+    newDiv.innerHTML=`<span style="color:#aaa;cursor:grab;user-select:none;font-size:16px;line-height:1">⠿</span><div style="flex:1"><div class="label-id">${esc(id)}</div><input type="text" value="${esc(exp?.Projekttitel||'')}" placeholder="${esc(id)}" oninput="updatePlotLabels()" data-expid="${esc(id)}"></div><button onclick="plotRemoveExp('${esc(id)}')" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:15px;padding:0 2px;line-height:1;flex-shrink:0" title="Entfernen">×</button>`;
     labelDiv.appendChild(newDiv);
   }
+  rebuildPlotCharts();
+}
+function plotRemoveExp(id){
+  _plotRows=_plotRows.filter(r=>r.Experiment_ID!==id);
+  const labelDiv=document.getElementById('plot-label-inputs');
+  if(labelDiv){const el=labelDiv.querySelector(`div[data-expid="${id}"]`);if(el)el.remove();}
   rebuildPlotCharts();
 }
 function plotDragStart(e){_dragSrcEl=e.currentTarget;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain','');e.currentTarget.style.opacity='0.4';}
