@@ -70,6 +70,9 @@
     tr.exp-row { cursor:pointer; }
     tr.exp-row:hover td { background:#fafbfc; }
     tr.exp-row.expanded td { background:#f8faff; }
+    tr.res-row { cursor:pointer; }
+    tr.res-row:hover td { background:#fafbfc; }
+    tr.res-row.expanded td { background:#f8faff; }
     .text-cell.collapsed { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:360px; }
     .text-cell.expanded-text { white-space:pre-wrap; word-break:break-word; max-width:360px; }
     .extra-fields { display:none; margin-top:8px; font-size:12px; color:#444; }
@@ -172,6 +175,9 @@
     .exp-titel-td { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     tr.exp-row.expanded .exp-titel-td { white-space:normal; overflow:visible; text-overflow:clip; max-width:none; }
     #pane-exp.wrap-mode .exp-titel-td { white-space:normal; overflow:hidden; text-overflow:clip; word-break:break-word; }
+    /* Ergebnisse title column */
+    .res-titel-td { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    tr.res-row.expanded .res-titel-td { white-space:normal; overflow:visible; text-overflow:clip; max-width:none; }
     #pane-exp.wrap-mode .text-cell.collapsed { white-space:pre-wrap; overflow:hidden; word-break:break-word; }
 
     /* Grafiken gallery */

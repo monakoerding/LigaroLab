@@ -257,6 +257,7 @@ function filterExp(){
 }
 
 function toggleExpRow(expId){const row=document.getElementById('erow-'+expId);const tc=document.getElementById('tc-'+expId);if(!row)return;const exp=!row.classList.contains('expanded');row.classList.toggle('expanded',exp);if(tc){tc.classList.toggle('collapsed',!exp);tc.classList.toggle('expanded-text',exp);}}
+function toggleResRow(expId){const row=document.getElementById('rrow-'+expId);if(!row)return;row.classList.toggle('expanded');}
 function toggleAllWrap(on){document.getElementById('pane-exp').classList.toggle('wrap-mode',on);}
 
 // ─── Material list ─────────────────────────────────────────────────────────
@@ -376,9 +377,9 @@ function filterRes(){
         const style=mpaStyle(r.MWMpa.toFixed(2),r.Lagerfolge_ID);
         const eid=esc(r.Experiment_ID);
         const cbCell=plotSelMode?`<td onclick="event.stopPropagation()" style="width:32px;text-align:center"><input type="checkbox" class="res-cb" onchange="onResCbChange(this,'${eid}')" ${plotSelIds.has(r.Experiment_ID)?'checked':''}></td>`:'';
-        return `<tr>
-          ${cbCell}<td><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.Titel)}</td>
+        return `<tr class="res-row" id="rrow-${eid}" onclick="toggleResRow('${eid}')">
+          ${cbCell}<td onclick="event.stopPropagation()"><span class="badge" onclick="openDetail(event,'${eid}')">${eid}</span></td>
+          <td class="res-titel-td" id="rtit-${eid}" title="${esc(r.Titel)}">${esc(r.Titel)}</td>
           <td style="white-space:nowrap">${fmtDate(r.Datum)}</td>
           <td>${esc(r.Person)}</td>
           <td style="font-size:12px">${esc(r.Lagerfolge_ID)}</td>
