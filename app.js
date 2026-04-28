@@ -1113,13 +1113,13 @@ function dMatEdit(spId){
   dMatCalcMpa(spId);
 }
 function dMatCancel(sid){
-  const m=allMat.find(x=>x._spId===sid);
+  const m=allMat.find(x=>x._spId==sid);
   const row=document.getElementById('mat-drow-'+sid);if(!row)return;
   if(m)row.outerHTML=dMatRow(m); else row.remove();
 }
 async function dMatSave(sid){
   const row=document.getElementById('mat-drow-'+sid);if(!row)return;
-  const m=allMat.find(x=>x._spId===sid);
+  const m=allMat.find(x=>x._spId==sid);
   const expId=m?m.Experiment_ID:row.dataset.expid;
   const lafo=(document.getElementById('md-lafo-'+sid)?.value||'').trim();
   const l=document.getElementById('md-l-'+sid)?.value;
@@ -1175,13 +1175,13 @@ function dScEdit(spId){
   row.innerHTML=dScEditRow(spId,s.Probe||'',s.Leergewicht_g??'',s.Einwaage_g??'',s.Endgewicht_g??'',s.Kommentar||'');
 }
 function dScCancel(sid){
-  const s=allSC.find(x=>x._spId===sid);
+  const s=allSC.find(x=>x._spId==sid);
   const row=document.getElementById('sc-drow-'+sid);if(!row)return;
   if(s)row.outerHTML=dScRow(s); else row.remove();
 }
 async function dScSave(sid){
   const row=document.getElementById('sc-drow-'+sid);if(!row)return;
-  const s=allSC.find(x=>x._spId===sid);
+  const s=allSC.find(x=>x._spId==sid);
   const expId=s?s.Experiment_ID:row.dataset.expid;
   const int={Experiment_ID:expId,Probe:(document.getElementById('sd-p-'+sid)?.value||'').trim(),Leergewicht_g:document.getElementById('sd-l-'+sid)?.value!==''?parseFloat(document.getElementById('sd-l-'+sid)?.value):null,Einwaage_g:document.getElementById('sd-e-'+sid)?.value!==''?parseFloat(document.getElementById('sd-e-'+sid)?.value):null,Endgewicht_g:document.getElementById('sd-en-'+sid)?.value!==''?parseFloat(document.getElementById('sd-en-'+sid)?.value):null,Kommentar:(document.getElementById('sd-k-'+sid)?.value||'').trim()};
   try{
@@ -1446,7 +1446,7 @@ function dupExp(expId){
   const lastDash=item.Experiment_ID.lastIndexOf('-');
   const prefix=lastDash>=0?item.Experiment_ID.substring(0,lastDash):item.Experiment_ID;
   const nums=allExp.filter(e=>e.Experiment_ID?.startsWith(prefix+'-')).map(e=>parseInt(e.Experiment_ID.substring(prefix.length+1).split('-')[0])).filter(n=>Number.isFinite(n));
-  const newId=`${prefix}-${String(nums.length?Math.max(...nums)+1:1).padStart(3,'0')}`;
+  const newId=`${prefix}-${String(nums.length?Math.max(...nums)+1:1).padStart(2,'0')}`;
   editingExp=null;
   document.getElementById('overlay').classList.add('open');document.getElementById('panel-exp').classList.add('open');activePanel='exp';
   initExpForm(null);
@@ -1645,6 +1645,7 @@ function editMat(spId){const item=allMat.find(m=>m._spId===spId);if(!item)return
 function addSpecRow(){const i=specIdx++;const tr=document.createElement('tr');tr.id='spec-row-'+i;tr.innerHTML=`<td><input type="number" id="sl-${i}" value="10" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sb-${i}" value="20" min="0" step="0.1" oninput="recalcMpa(${i})"></td><td><input type="number" id="sf-${i}" min="0" step="1" oninput="recalcMpa(${i})"></td><td class="mpa-cell" id="sm-${i}">–</td><td><input type="number" id="sh-${i}" min="0" max="100" step="1" placeholder="0–100"></td><td><input type="text" id="sk-${i}"></td><td><button class="del-btn" onclick="removeSpecRow(${i})">×</button></td>`;document.getElementById('spec-tbody').appendChild(tr);}
 function removeSpecRow(i){document.getElementById('spec-row-'+i)?.remove();}
 function recalcMpa(i){const l=document.getElementById('sl-'+i)?.value,b=document.getElementById('sb-'+i)?.value,f=document.getElementById('sf-'+i)?.value,m=document.getElementById('sm-'+i);if(m){const v=calcMpa(l,b,f);m.textContent=v?v.replace('.',',')+' MPa':'–';}}
+function setAllSpecZero(){document.querySelectorAll('#spec-tbody tr').forEach(tr=>{const i=tr.id.replace('spec-row-','');const f=document.getElementById('sf-'+i),h=document.getElementById('sh-'+i);if(f)f.value='0';if(h)h.value='0';recalcMpa(i);});}
 async function saveMaterial(){
   const alertEl=document.getElementById('mat-alert'),btn=document.getElementById('btn-save-mat');
   const expId=document.getElementById('f-mat-expid').value.trim().toUpperCase(),lafo=document.getElementById('f-mat-lafo').value;
@@ -1699,8 +1700,8 @@ function initSCForm(item){
   }
 }
 function editSC(spId){const item=allSC.find(s=>s._spId===spId);if(!item)return;editingSC=item;document.getElementById('overlay').classList.add('open');document.getElementById('panel-sc').classList.add('open');activePanel='sc';initSCForm(item);}
-function openSCPanel(expId){document.getElementById('overlay').classList.add('open');document.getElementById('panel-sc').classList.add('open');activePanel='sc';editingSC=null;initSCForm(null);if(expId)document.getElementById('f-sc-expid').value=expId;}
-function addSCRow(){const i=scIdx++;const tr=document.createElement('tr');tr.id='sc-row-'+i;tr.innerHTML=`<td><input type="text" id="sp-${i}" style="width:80px"></td><td><input type="number" id="sl-sc-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="se-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="sg-${i}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td class="mpa-cell" id="ss-${i}" style="white-space:nowrap">–</td><td><input type="text" id="sk-sc-${i}" style="width:100px"></td><td><button class="del-btn" onclick="removeSCRow(${i})">×</button></td>`;document.getElementById('sc-tbody').appendChild(tr);}
+function openSCPanel(expId){document.getElementById('overlay').classList.add('open');document.getElementById('panel-sc').classList.add('open');activePanel='sc';editingSC=null;initSCForm(null);if(expId){document.getElementById('f-sc-expid').value=expId;const existing=allSC.filter(s=>s.Experiment_ID===expId);if(existing.length){document.getElementById('sc-tbody').innerHTML='';scIdx=0;existing.forEach(s=>addSCRow(s));}}}
+function addSCRow(item=null){const i=scIdx++;const rowNum=document.getElementById('sc-tbody').children.length+1;const tr=document.createElement('tr');tr.id='sc-row-'+i;if(item?._spId)tr.dataset.spid=item._spId;tr.innerHTML=`<td><input type="text" id="sp-${i}" value="${item?.Probe!=null?esc(String(item.Probe)):rowNum}" style="width:80px"></td><td><input type="number" id="sl-sc-${i}" value="${item?.Leergewicht_g??''}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="se-${i}" value="${item?.Einwaage_g??''}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td><input type="number" id="sg-${i}" value="${item?.Endgewicht_g??''}" min="0" step="0.0001" oninput="recalcSC(${i})" style="width:90px"></td><td class="mpa-cell" id="ss-${i}" style="white-space:nowrap">–</td><td><input type="text" id="sk-sc-${i}" value="${esc(item?.Kommentar??'')}" style="width:100px"></td><td><button class="del-btn" onclick="removeSCRow(${i})">×</button></td>`;document.getElementById('sc-tbody').appendChild(tr);if(item)recalcSC(i);}
 function removeSCRow(i){document.getElementById('sc-row-'+i)?.remove();}
 function recalcSC(i){const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,sc=document.getElementById('ss-'+i);if(sc){const v=calcSC(leer,ein,end);sc.textContent=v!=null?fmtDec(v,2)+'%':'–';}}
 async function saveSC(){
@@ -1715,12 +1716,13 @@ async function saveSC(){
       const int={Experiment_ID:expId,Probe:document.getElementById('f-sc-probe').value.trim(),Leergewicht_g:parseFloat(leer),Einwaage_g:parseFloat(ein),Endgewicht_g:end!==''?parseFloat(end):null,Kommentar:document.getElementById('f-sc-komm').value.trim()};
       await spPatch(LIST.feststoffgehalt,editingSC._spId,mapTo(int,FIELDS.feststoffgehalt));Object.assign(editingSC,int);
     } else {
-      const rows=[];
-      document.querySelectorAll('#sc-tbody tr').forEach(tr=>{const i=tr.id.replace('sc-row-','');const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,probe=document.getElementById('sp-'+i)?.value,k=document.getElementById('sk-sc-'+i)?.value;if(leer&&ein){const int={Experiment_ID:expId,Probe:probe||'',Leergewicht_g:parseFloat(leer),Einwaage_g:parseFloat(ein),Endgewicht_g:end!==''?parseFloat(end):null,Kommentar:k||''};rows.push({int,sp:mapTo(int,FIELDS.feststoffgehalt)});}});
-      if(!rows.length){alertEl.innerHTML='<div class="alert alert-err">Keine gültigen Proben (Leergewicht + Einwaage erforderlich).</div>';btn.disabled=false;return;}
-      btn.textContent=`Speichert ${rows.length}…`;
-      const saved=await Promise.all(rows.map(r=>spPost(LIST.feststoffgehalt,r.sp)));
-      saved.forEach((s,i)=>allSC.unshift({...rows[i].int,_spId:s.d.Id}));
+      const toUpdate=[],toCreate=[];
+      document.querySelectorAll('#sc-tbody tr').forEach(tr=>{const i=tr.id.replace('sc-row-','');const leer=document.getElementById('sl-sc-'+i)?.value,ein=document.getElementById('se-'+i)?.value,end=document.getElementById('sg-'+i)?.value,probe=document.getElementById('sp-'+i)?.value,k=document.getElementById('sk-sc-'+i)?.value;if(leer&&ein){const int={Experiment_ID:expId,Probe:probe||'',Leergewicht_g:parseFloat(leer),Einwaage_g:parseFloat(ein),Endgewicht_g:end!==''?parseFloat(end):null,Kommentar:k||''};const sp=mapTo(int,FIELDS.feststoffgehalt);const spId=tr.dataset.spid?Number(tr.dataset.spid):null;if(spId)toUpdate.push({int,sp,spId});else toCreate.push({int,sp});}});
+      if(!toUpdate.length&&!toCreate.length){alertEl.innerHTML='<div class="alert alert-err">Keine gültigen Proben (Leergewicht + Einwaage erforderlich).</div>';btn.disabled=false;return;}
+      btn.textContent=`Speichert ${toUpdate.length+toCreate.length}…`;
+      await Promise.all(toUpdate.map(r=>spPatch(LIST.feststoffgehalt,r.spId,r.sp)));
+      toUpdate.forEach(r=>{const ex=allSC.find(s=>s._spId===r.spId);if(ex)Object.assign(ex,r.int);});
+      if(toCreate.length){const saved=await Promise.all(toCreate.map(r=>spPost(LIST.feststoffgehalt,r.sp)));saved.forEach((s,i)=>allSC.unshift({...toCreate[i].int,_spId:s.d.Id}));}
     }
     cachedErgebnisse=computeErgebnisse();filterRes();
     alertEl.innerHTML='<div class="alert alert-ok">Gespeichert!</div>';setTimeout(closePanel,900);
